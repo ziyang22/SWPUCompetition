@@ -1,6 +1,9 @@
 #include "projection_c.h"
 
 #include <math.h>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -370,6 +373,25 @@ static int get_closest_points(const point2d_buffer* points, point2d_buffer* clos
     return 1;
 }
 
+static int circle_candidate_better(
+    double radius,
+    int i,
+    int j,
+    double best_radius,
+    int best_i,
+    int best_j
+) {
+    if (radius > best_radius + PROJECTION_C_EPS) {
+        return 1;
+    }
+    if (fabs(radius - best_radius) <= PROJECTION_C_EPS) {
+        if (best_i < 0 || i < best_i || (i == best_i && j < best_j)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static projection_c_circle max_inscribed_circle(const point2d_buffer* points, int grid_num) {
     projection_c_circle max_circle = {0.0, 0.0, 0.0};
     double max_radius = 0.0;
@@ -379,8 +401,9 @@ static projection_c_circle max_inscribed_circle(const point2d_buffer* points, in
     double ymax;
     double x_step;
     double y_step;
+    int best_i = -1;
+    int best_j = -1;
     int i;
-    int j;
     size_t p;
 
     if (points->size == 0) {
@@ -405,7 +428,48 @@ static projection_c_circle max_inscribed_circle(const point2d_buffer* points, in
     x_step = (xmax - xmin) / grid_num;
     y_step = (ymax - ymin) / grid_num;
 
+#ifdef _OPENMP
+#pragma omp parallel
+    {
+        double thread_best_radius = 0.0;
+        int thread_best_i = -1;
+        int thread_best_j = -1;
+
+#pragma omp for nowait
+        for (i = 0; i < grid_num; ++i) {
+            int j;
+            double x0 = xmin + i * x_step;
+            for (j = 0; j < grid_num; ++j) {
+                double y0 = ymin + j * y_step;
+                projection_c_point2d center = {x0, y0};
+                double min_dist = 1e300;
+                for (p = 0; p < points->size; ++p) {
+                    projection_c_point2d delta = point2d_sub(points->data[p], center);
+                    double dist = point2d_norm(delta);
+                    if (dist < min_dist) {
+                        min_dist = dist;
+                    }
+                }
+                if (circle_candidate_better(min_dist, i, j, thread_best_radius, thread_best_i, thread_best_j)) {
+                    thread_best_radius = min_dist;
+                    thread_best_i = i;
+                    thread_best_j = j;
+                }
+            }
+        }
+
+#pragma omp critical
+        {
+            if (circle_candidate_better(thread_best_radius, thread_best_i, thread_best_j, max_radius, best_i, best_j)) {
+                max_radius = thread_best_radius;
+                best_i = thread_best_i;
+                best_j = thread_best_j;
+            }
+        }
+    }
+#else
     for (i = 0; i < grid_num; ++i) {
+        int j;
         double x0 = xmin + i * x_step;
         for (j = 0; j < grid_num; ++j) {
             double y0 = ymin + j * y_step;
@@ -418,13 +482,19 @@ static projection_c_circle max_inscribed_circle(const point2d_buffer* points, in
                     min_dist = dist;
                 }
             }
-            if (min_dist > max_radius) {
+            if (circle_candidate_better(min_dist, i, j, max_radius, best_i, best_j)) {
                 max_radius = min_dist;
-                max_circle.center_x = x0;
-                max_circle.center_y = y0;
-                max_circle.radius = min_dist;
+                best_i = i;
+                best_j = j;
             }
         }
+    }
+#endif
+
+    if (best_i >= 0 && best_j >= 0) {
+        max_circle.center_x = xmin + best_i * x_step;
+        max_circle.center_y = ymin + best_j * y_step;
+        max_circle.radius = max_radius;
     }
 
     max_circle.radius *= 0.98;

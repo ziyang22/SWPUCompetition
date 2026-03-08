@@ -8,6 +8,27 @@ from setuptools import setup
 cpp_src_dir = Path(__file__).parent.parent.absolute()
 project_root = cpp_src_dir.parent.absolute()
 
+compile_args = [
+    "-O3",
+    "-march=native",
+    "-ffast-math",
+]
+link_args = []
+include_dirs = [
+    str(cpp_src_dir),
+    str(project_root / "c_src"),
+]
+
+if os.environ.get("PROJECTION_USE_OPENMP") == "1":
+    if sys.platform == "darwin":
+        default_libomp_prefix = os.popen("brew --prefix libomp 2>/dev/null").read().strip() or "/opt/homebrew/opt/libomp"
+        libomp_prefix = Path(os.environ.get("LIBOMP_PREFIX", default_libomp_prefix))
+        compile_args.extend(["-Xpreprocessor", "-fopenmp", f"-I{libomp_prefix / 'include'}"])
+        link_args.extend([f"-L{libomp_prefix / 'lib'}", "-lomp"])
+    else:
+        compile_args.append("-fopenmp")
+        link_args.append("-fopenmp")
+
 # Define the extension module
 ext_modules = [
     Pybind11Extension(
@@ -18,16 +39,10 @@ ext_modules = [
             str(cpp_src_dir / "file_io_improved.cpp"),
             str(project_root / "c_src" / "projection_c_python_adapter.cpp"),
         ],
-        include_dirs=[
-            str(cpp_src_dir),
-            str(project_root / "c_src"),
-        ],
+        include_dirs=include_dirs,
         cxx_std=17,
-        extra_compile_args=[
-            "-O3",
-            "-march=native",
-            "-ffast-math",
-        ],
+        extra_compile_args=compile_args,
+        extra_link_args=link_args,
         define_macros=[
             ("NPY_NO_DEPRECATED_API", "NPY_1_7_API_VERSION"),
         ],

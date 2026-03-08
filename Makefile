@@ -12,6 +12,26 @@ UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
     # macOS
     CXX = clang++
+    CC = clang
+    LIBOMP_PREFIX ?= $(shell brew --prefix libomp 2>/dev/null)
+    ifeq ($(LIBOMP_PREFIX),)
+        LIBOMP_PREFIX = /opt/homebrew/opt/libomp
+    endif
+endif
+
+USE_OPENMP ?= 0
+
+ifeq ($(USE_OPENMP),1)
+    ifeq ($(UNAME_S),Darwin)
+        OPENMP_CFLAGS = -Xpreprocessor -fopenmp -I$(LIBOMP_PREFIX)/include
+        OPENMP_LDFLAGS = -L$(LIBOMP_PREFIX)/lib -lomp
+    else
+        OPENMP_CFLAGS = -fopenmp
+        OPENMP_LDFLAGS = -fopenmp
+    endif
+    CXXFLAGS += $(OPENMP_CFLAGS)
+    CFLAGS += $(OPENMP_CFLAGS)
+    LDFLAGS += $(OPENMP_LDFLAGS)
 endif
 
 # Directories
