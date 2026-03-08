@@ -7,6 +7,7 @@
 ```
 .
 ├── cpp_src/              # C++ 源代码
+│   ├── python_bindings/ # Python 绑定 (pybind11)
 │   ├── projection_method.h
 │   ├── projection_method.cpp
 │   ├── file_io_improved.cpp
@@ -23,10 +24,14 @@
 │   ├── check_output.py
 │   ├── compare_cpp_py.py
 │   ├── benchmark.py
+│   ├── test_cpp_binding.py
 │   ├── build_and_test.sh
 │   └── test_compile.sh
+├── examples/            # 使用示例
+│   └── use_cpp_binding.py
 ├── docs/                # 文档
 │   ├── README.md
+│   ├── PYTHON_BINDING.md
 │   ├── QUICK_START.md
 │   ├── COMPILE_GUIDE.md
 │   ├── HOW_TO_USE.md
@@ -38,21 +43,34 @@
 
 ## 🚀 快速开始
 
-### 方式 1: 交互式运行（推荐）
+### 方式 1: C++ 独立程序（交互式，推荐）
 
 ```bash
 make                    # 编译
 ./projection_method     # 交互式选择数据集和参数
 ```
 
-### 方式 2: 命令行运行
+### 方式 2: C++ 命令行运行
 
 ```bash
 make
 ./projection_method 1.0 0.025 3300 3400 0.5  # 使用默认数据集
 ```
 
-### 方式 3: 完整测试
+### 方式 3: Python 调用 C++ / C 后端
+
+```bash
+# 安装 Python 绑定
+conda activate SWPUCompetiton
+cd cpp_src/python_bindings
+pip install -e .
+
+# 在仓库根目录运行示例
+cd ../..
+python examples/use_cpp_binding.py
+```
+
+### 方式 4: 完整测试
 
 ```bash
 make test              # 编译、运行并验证输出
@@ -60,14 +78,15 @@ make test              # 编译、运行并验证输出
 
 ## 📊 性能对比
 
-| 版本 | 计算时间 | 加速比 |
-|------|---------|--------|
-| Python | ~354s | 1x |
-| C++ | ~2.65s | **134x** |
+| 版本 | 计算时间 (100m) | 加速比 |
+|------|----------------|--------|
+| Python 原始实现 | ~64s | 1x |
+| C++ 独立程序 | ~2.65s | **24x** |
+| C++ Python 绑定 | ~0.29s | **220x** |
 
 ## 🎯 使用示例
 
-### 交互式模式
+### C++ 交互式模式
 ```bash
 ./projection_method
 
@@ -84,12 +103,30 @@ make test              # 编译、运行并验证输出
 # ...
 ```
 
-### 命令行模式
+### C++ 命令行模式
 ```bash
 ./projection_method <工具长度> <工具半径> <起始深度> <截止深度> <步长>
 
 # 示例
 ./projection_method 1.0 0.025 3300 3400 0.5
+```
+
+### Python 调用 C++ (推荐)
+```python
+from projection_cpp import Projection2_c, Projection2_cpp
+import pandas as pd
+import numpy as np
+
+# 加载数据
+all_data = pd.read_csv('data/default/all_data.csv')
+Point_3D = np.load('data/default/Point_3D.npy')
+
+# 调用 C++ 实现（220x 加速）
+deep, R, rr, dd, p_all, t_all, draw_R = Projection2_cpp(
+    all_data, Point_3D, 1.0, 0.025, 3300, 3400, 0.5
+)
+
+print(f"最大通过直径: {R * 2 * 1000:.3f} mm")
 ```
 
 ### 验证输出
@@ -100,6 +137,7 @@ python scripts/check_output.py
 ## 📖 文档
 
 - [项目文档](docs/README.md) - 完整项目文档
+- [Python 绑定指南](docs/PYTHON_BINDING.md) - C++ Python 绑定使用说明
 - [快速开始](docs/QUICK_START.md) - 3 步快速开始
 - [使用指南](docs/HOW_TO_USE.md) - 详细使用说明
 - [编译指南](docs/COMPILE_GUIDE.md) - 编译选项和故障排除
@@ -107,13 +145,15 @@ python scripts/check_output.py
 
 ## 🔧 环境要求
 
-### C++ 版本
+### C++ 独立程序
 - C++17 编译器（GCC 7+, Clang 5+, MSVC 2017+）
 - Make
 
-### Python 版本
+### Python 版本 & C++ 绑定
 - Python 3.8+
 - NumPy, Pandas, Matplotlib, SciPy
+- pybind11 (用于 C++ 绑定)
+- C++17 编译器（用于编译绑定）
 
 ## 📝 输出文件
 
@@ -153,23 +193,26 @@ python scripts/check_output.py
 ## 🛠️ 常用命令
 
 ```bash
-# 清理并重新编译
-make clean && make
+# C++ 独立程序
+make clean && make      # 清理并重新编译
+make test               # 运行测试
 
-# 运行测试
-make test
+# Python 绑定
+cd cpp_src/python_bindings
+pip install -e .        # 安装 C++ Python 绑定
+python ../../examples/use_cpp_binding.py  # 运行示例
 
-# 性能对比
-python scripts/benchmark.py
-
-# 验证输出
-python scripts/check_output.py
+# 测试和验证
+python scripts/test_cpp_binding.py   # 测试 Python 绑定
+python scripts/benchmark.py          # 性能对比
+python scripts/check_output.py      # 验证输出
 ```
 
 ## 📦 项目特点
 
 - ✅ 完整的算法移植（与 Python 版本完全一致）
-- ✅ 极致的性能（134x 加速）
+- ✅ 极致的性能（C++ 独立程序 24x，Python 绑定 220x）
+- ✅ Python 绑定支持（pybind11，无缝集成）
 - ✅ 严格的验证（输出精度完全匹配）
 - ✅ 交互式数据集选择
 - ✅ 清晰的目录结构
@@ -184,6 +227,7 @@ SWPU Competition Project
 
 **快速链接**：
 - 🚀 [快速开始](docs/QUICK_START.md)
+- 🐍 [Python 绑定指南](docs/PYTHON_BINDING.md)
 - 📖 [完整文档](docs/README.md)
 - 🔧 [编译指南](docs/COMPILE_GUIDE.md)
 - 📊 [性能对比](scripts/benchmark.py)

@@ -5,6 +5,12 @@
 #include <array>
 #include <string>
 #include <optional>
+#include <stdexcept>
+#include <cmath>
+
+extern "C" {
+#include "../c_src/projection_c.h"
+}
 
 namespace projection {
 
@@ -158,6 +164,8 @@ private:
 private:
     std::vector<TrajectoryPoint> trajectory_;
     std::vector<std::vector<Point3D>> point_3d_;  // CHANGED: 2D array now [depth][24_points]
+    std::vector<projection_c_trajectory_point> trajectory_c_;
+    std::vector<projection_c_point3d> point_3d_c_;
     double instrument_length_;
     double instrument_radius_;
     double num_step_;
