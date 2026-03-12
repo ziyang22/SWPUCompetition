@@ -354,6 +354,24 @@ bool ProjectionCalculator::calculate(
     min_radius = output.min_radius;
     bool passed = output.passed != 0;
 
+    std::cout << "\nC 串行热点摘要:" << std::endl;
+    std::cout << "  窗口数: " << output.profile.window_count << std::endl;
+    std::cout << "  最大内切圆时间占比: " << std::fixed << std::setprecision(2)
+              << (results.empty() || results.back().total_time <= 0.0 ? 0.0 : output.profile.max_inscribed_circle_time * 100.0 / results.back().total_time)
+              << "%" << std::endl;
+    std::cout << "  平面投影时间占比: "
+              << (results.empty() || results.back().total_time <= 0.0 ? 0.0 : output.profile.projection_time * 100.0 / results.back().total_time)
+              << "%" << std::endl;
+    std::cout << "  3D->2D 时间占比: "
+              << (results.empty() || results.back().total_time <= 0.0 ? 0.0 : output.profile.point3d_to_2d_time * 100.0 / results.back().total_time)
+              << "%" << std::endl;
+    std::cout << "  closest 点提取时间占比: "
+              << (results.empty() || results.back().total_time <= 0.0 ? 0.0 : output.profile.closest_points_time * 100.0 / results.back().total_time)
+              << "%" << std::endl;
+    std::cout << "  平均每窗口方向数: "
+              << (output.profile.window_count == 0 ? 0.0 : static_cast<double>(output.profile.direction_count_total) / static_cast<double>(output.profile.window_count))
+              << std::endl;
+
     if (!passed) {
         std::cout << "保存最后10个步长信息..." << std::endl;
         std::string stuck_file_name = "output/stuck_point_" + std::to_string(static_cast<int>(stuck_depth)) + "m.txt";

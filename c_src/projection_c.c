@@ -529,7 +529,13 @@ static int append_result(projection_c_output* output, projection_c_result_row ro
 }
 
 static double now_seconds(void) {
-    return (double)clock() / (double)CLOCKS_PER_SEC;
+#ifdef _OPENMP
+    return omp_get_wtime();
+#else
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec + (double)ts.tv_nsec / 1000000000.0;
+#endif
 }
 
 int projection_c_calculate(
@@ -578,6 +584,10 @@ int projection_c_calculate(
         set_error(output, PROJECTION_C_ERROR_NUM_STEP, "步进距离不能大于工具长度");
         return output->error_code;
     }
+    if (step < 1) {
+        set_error(output, PROJECTION_C_ERROR_NUM_STEP, "步长过小，离散步数必须至少为 1");
+        return output->error_code;
+    }
 
     begin = find_depth_index(input, config->begin_deep);
     end = find_depth_index(input, config->end_deep) + 1;
@@ -604,6 +614,18 @@ int projection_c_calculate(
         projection_c_circle min_circle = {0.0, 0.0, 0.0};
         double max_r = 0.0;
         double start_time = now_seconds();
+        double setup_start;
+        double setup_end;
+        double direction_generation_start;
+        double direction_generation_end;
+        double direction_loop_start;
+        double direction_loop_end;
+        double window_total_time;
+        double window_projection_time = 0.0;
+        double window_mean_time = 0.0;
+        double window_point3d_to_2d_time = 0.0;
+        double window_closest_time = 0.0;
+        double window_circle_time = 0.0;
         size_t m;
         projection_c_result_row row;
 
@@ -611,6 +633,7 @@ int projection_c_calculate(
             j = (int)input->depth_count - 1;
         }
 
+        setup_start = now_seconds();
         if (i - step < 0) {
             Pi.x = input->trajectory[begin].position_x;
             Pi.y = input->trajectory[begin].position_y;
@@ -626,8 +649,15 @@ int projection_c_calculate(
 
         diff = point3d_sub(Pj, Pi);
         d = point3d_norm(diff);
+        if (d <= PROJECTION_C_EPS) {
+            set_error(output, PROJECTION_C_ERROR_INVALID_ARGUMENT, "trajectory points are too close to determine projection direction");
+            goto cleanup;
+        }
         n = point3d_scale(diff, 1.0 / d);
+        setup_end = now_seconds();
+        output->profile.setup_time += setup_end - setup_start;
 
+        direction_generation_start = now_seconds();
         directions.size = 0;
         while (angle < delta) {
             point3d_buffer local_directions = {NULL, 0, 0};
@@ -643,6 +673,10 @@ int projection_c_calculate(
             free(local_directions.data);
             angle += angle_step;
         }
+        direction_generation_end = now_seconds();
+        output->profile.direction_generation_time += direction_generation_end - direction_generation_start;
+        output->profile.direction_count_total += directions.size;
+        output->profile.window_count += 1;
 
         plane_normal.x = input->trajectory[j - 1].position_x - input->trajectory[j].position_x;
         plane_normal.y = input->trajectory[j - 1].position_y - input->trajectory[j].position_y;
@@ -654,8 +688,19 @@ int projection_c_calculate(
         C = plane_normal.z;
         D = -(A * input->trajectory[j].position_x + B * input->trajectory[j].position_y + C * input->trajectory[j].position_z);
 
+        direction_loop_start = now_seconds();
         for (m = 0; m < directions.size; ++m) {
             int start_idx = j - step;
+            double projection_start;
+            double projection_end;
+            double mean_start;
+            double mean_end;
+            double point3d_to_2d_start;
+            double point3d_to_2d_end;
+            double closest_start;
+            double closest_end;
+            double circle_start;
+            double circle_end;
             projection_c_point3d mean_proj = {0.0, 0.0, 0.0};
             projection_c_circle current_circle;
             size_t p;
@@ -664,6 +709,7 @@ int projection_c_calculate(
                 start_idx = 0;
             }
 
+            projection_start = now_seconds();
             if (!line_plane_multiple(
                     input,
                     start_idx,
@@ -679,39 +725,73 @@ int projection_c_calculate(
                 set_error(output, PROJECTION_C_ERROR_ALLOCATION_FAILED, "allocation failed");
                 goto cleanup;
             }
+            projection_end = now_seconds();
+            output->profile.projection_time += projection_end - projection_start;
+            window_projection_time += projection_end - projection_start;
 
             if (projected.size == 0) {
+                output->profile.empty_projection_direction_count += 1;
                 continue;
             }
+            output->profile.projected_points_total += projected.size;
+            if (projected.size > output->profile.projected_points_max) {
+                output->profile.projected_points_max = projected.size;
+            }
 
+            mean_start = now_seconds();
             for (p = 0; p < projected.size; ++p) {
                 mean_proj = point3d_add(mean_proj, projected.data[p]);
             }
             mean_proj = point3d_scale(mean_proj, 1.0 / (double)projected.size);
+            mean_end = now_seconds();
+            output->profile.mean_reduction_time += mean_end - mean_start;
+            window_mean_time += mean_end - mean_start;
 
+            point3d_to_2d_start = now_seconds();
             if (!point3d_to_2d(A, B, C, &projected, mean_proj, projected.data[3], &projected_2d)) {
                 set_error(output, PROJECTION_C_ERROR_ALLOCATION_FAILED, "allocation failed");
                 goto cleanup;
             }
+            point3d_to_2d_end = now_seconds();
+            output->profile.point3d_to_2d_time += point3d_to_2d_end - point3d_to_2d_start;
+            window_point3d_to_2d_time += point3d_to_2d_end - point3d_to_2d_start;
 
+            closest_start = now_seconds();
             if (!get_closest_points(&projected_2d, &closest_2d)) {
                 set_error(output, PROJECTION_C_ERROR_ALLOCATION_FAILED, "allocation failed");
                 goto cleanup;
             }
+            closest_end = now_seconds();
+            output->profile.closest_points_time += closest_end - closest_start;
+            window_closest_time += closest_end - closest_start;
+            output->profile.closest_points_total += closest_2d.size;
+            if (closest_2d.size > output->profile.closest_points_max) {
+                output->profile.closest_points_max = closest_2d.size;
+            }
 
+            circle_start = now_seconds();
             current_circle = max_inscribed_circle(&closest_2d, 30);
+            circle_end = now_seconds();
+            output->profile.max_inscribed_circle_time += circle_end - circle_start;
+            window_circle_time += circle_end - circle_start;
             if (current_circle.radius > max_r) {
                 max_r = current_circle.radius;
                 min_circle = current_circle;
             }
         }
+        direction_loop_end = now_seconds();
+        output->profile.direction_loop_time += direction_loop_end - direction_loop_start;
+        output->profile.residual_time += (direction_loop_end - direction_loop_start)
+            - (window_projection_time + window_mean_time + window_point3d_to_2d_time
+               + window_closest_time + window_circle_time);
 
         row.depth = input->trajectory[j].depth;
         row.tool_length = config->instrument_length;
         row.center_x = min_circle.center_x;
         row.center_y = min_circle.center_y;
         row.diameter = min_circle.radius * 2.0;
-        row.current_time = now_seconds() - start_time;
+        window_total_time = now_seconds() - start_time;
+        row.current_time = window_total_time;
         t_all += row.current_time;
         row.total_time = t_all;
 

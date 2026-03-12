@@ -42,6 +42,25 @@ typedef struct {
 } projection_c_result_row;
 
 typedef struct {
+    double setup_time;
+    double direction_generation_time;
+    double direction_loop_time;
+    double projection_time;
+    double mean_reduction_time;
+    double point3d_to_2d_time;
+    double closest_points_time;
+    double max_inscribed_circle_time;
+    double residual_time;
+    size_t window_count;
+    size_t direction_count_total;
+    size_t empty_projection_direction_count;
+    size_t projected_points_total;
+    size_t closest_points_total;
+    size_t projected_points_max;
+    size_t closest_points_max;
+} projection_c_profile_summary;
+
+typedef struct {
     const projection_c_trajectory_point* trajectory;
     size_t trajectory_count;
     const projection_c_point3d* point_3d;
@@ -64,6 +83,7 @@ typedef struct {
     int passed;
     double stuck_depth;
     double min_radius;
+    projection_c_profile_summary profile;
     int error_code;
     char error_message[256];
 } projection_c_output;
