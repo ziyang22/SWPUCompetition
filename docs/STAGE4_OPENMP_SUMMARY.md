@@ -192,7 +192,35 @@ PROJECTION_USE_OPENMP=1 pip install -e .
 
 ---
 
-## 🚀 简单性能观察
+## 🚀 性能观察更新
+
+阶段 4 文档最初记录的是 `3300m -> 3310m` 小范围 OpenMP 验证结果。随着后续继续围绕 `max_inscribed_circle()` 做平方距离比较、延迟 `sqrt` 与可选 SIMD 优化，长区间实测结果已更新为：
+
+### 1. 长区间 CLI benchmark（`3300m -> 3400m`）
+
+| 模式 | 命令 | 平均耗时 |
+|------|------|-----------|
+| 串行 CLI | 默认 `make` | `1.317s` |
+| SIMD CLI | `make USE_SIMD=1` | `0.750s` |
+| OpenMP + SIMD CLI | `make USE_OPENMP=1 USE_SIMD=1` | `0.620s` |
+
+### 2. 最近一次端到端对比
+
+- `Python 原始实现`: `226.99s`
+- `最新 OpenMP + SIMD CLI`: `0.69s`
+- `相对 Python 加速比`: 约 **329x**
+
+### 3. 当前阶段理解
+
+这说明阶段 4 的 OpenMP 并行化不仅本身有效，而且为后续热点内部的标量优化与 SIMD 叠加优化提供了稳定基础：
+
+- OpenMP 方向是正确的
+- `max_inscribed_circle()` 仍然是主要热点
+- 在当前版本下，OpenMP + SIMD 已经成为更有代表性的推荐性能配置
+
+### 4. 历史小范围结果
+
+以下小范围结果仍保留，作为阶段 4 当时完成时的验证记录：
 
 在 `3300m -> 3310m` 小范围测试中：
 
@@ -205,11 +233,7 @@ PROJECTION_USE_OPENMP=1 pip install -e .
 说明：
 - 1 线程时会有少量 OpenMP 开销
 - 多线程下该热点已有明显收益
-- 更大范围的收益建议按目标数据集进一步实测
-
-`scripts/test_cpp_binding.py` 中的性能对比结果也显示：
-- `C++ 加速比: 240.7x`
-- `C 加速比: 254.5x`
+- 更大范围测试下，后续又进一步验证了 SIMD 与 OpenMP+SIMD 的叠加收益
 
 ---
 

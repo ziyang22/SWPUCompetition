@@ -22,14 +22,17 @@
 
 ### 2.1 数据与参数
 
-统一使用：
+本文档保留了阶段 4 OpenMP benchmark 的历史结论，同时补充后续热点优化（平方距离比较 + 可选 SIMD）后的最新长区间结果。
+
+最近一轮统一使用：
 
 - 数据集：`data/default`
 - 工具长度：`1.0 m`
 - 工具半径：`0.025 m`
 - 起始深度：`3300 m`
-- 截止深度：`3350 m`
+- 截止深度：`3400 m`
 - 步长：`0.5 m`
+- 运行环境：WSL + Conda 环境 `SWPUCompetiton`
 
 ### 2.2 测试对象
 
@@ -128,28 +131,38 @@ OpenMP 编译后，在 `OMP_NUM_THREADS=4` 下测得：
 
 ## 5. CLI 路径 Benchmark
 
-为更准确观察 OpenMP 对原生执行路径的影响，对 CLI 单独做 benchmark。
+为更准确观察热点优化后原生执行路径的收益，后续对 CLI 单独做了更长区间的 benchmark。
 
-### 5.1 CLI 耗时结果
+### 5.1 最新长区间 CLI 结果
 
-| 版本 | 配置 | 耗时 (s) | 相对串行 CLI 加速比 |
+长区间测试范围：`3300m -> 3400m`，`step=0.5`。
+
+| 版本 | 配置 | 平均耗时 (s) | 相对串行 CLI 加速比 |
 |---|---|---:|---:|
-| 串行 CLI | 默认 `make` | `1.17` | `1.0x` |
-| OpenMP CLI | `OMP_NUM_THREADS=1` | `1.15` | `1.02x` |
-| OpenMP CLI | `OMP_NUM_THREADS=4` | `0.54` | `2.17x` |
+| 串行 CLI | 默认 `make` | `1.317` | `1.0x` |
+| SIMD CLI | `make USE_SIMD=1` | `0.750` | `1.76x` |
+| OpenMP + SIMD CLI | `make USE_OPENMP=1 USE_SIMD=1` | `0.620` | `2.12x` |
+
+此外，最近一次直接实跑的 OpenMP + SIMD CLI 摘要为：
+
+- `总耗时: 0.69s`
+- `OpenMP: enabled, 线程数: 12`
+- `max_inscribed_circle: 0.52s (75.46%)`
+- `get_closest_points: 0.14s (20.76%)`
 
 ### 5.2 CLI 路径分析
 
-CLI 路径中可以更清楚地看到 OpenMP 的收益：
+相较阶段 4 仅 OpenMP 的版本，当前版本进一步叠加了热点标量优化与可选 SIMD：
 
-- `OMP_NUM_THREADS=1` 时与串行版本基本持平，仅有很小的运行时差异
-- `OMP_NUM_THREADS=4` 时，整体耗时从 `1.17s` 降至 `0.54s`
-- 相对串行 CLI 获得约 **2.17x** 加速
+- 仅启用 SIMD 时，整体已较串行基线提升约 `1.76x`
+- OpenMP + SIMD 组合下，整体较串行基线提升约 `2.12x`
+- 主收益仍来自 `max_inscribed_circle()`，但其占比已从更早阶段的 `90%+` 压缩到约 `75%`
 
 这说明：
 
-- OpenMP 优化在原生计算路径中已经产生明确收益
-- 当前并行化策略（仅并行 `max_inscribed_circle()`）对整体执行时间有实质改善
+- OpenMP 第一阶段并行化方向是正确的
+- 后续针对热点内部做平方距离比较与 SIMD 向量化后，原生 CLI 路径继续获得了稳定收益
+- `get_closest_points()` 的相对占比正在上升，已逐渐成为下一阶段值得观察的次热点
 
 ---
 
@@ -246,24 +259,26 @@ CLI 摘要输出显示：
 
 ## 7. 结论
 
-本次 benchmark 可以得出以下结论：
+本次 benchmark 与后续长区间复测可以得出以下结论：
 
 ### 正确性方面
 - 所有实现版本输出一致
 - OpenMP 版本没有引入数值结果偏差
+- 在热点进一步做平方距离比较、延迟 `sqrt` 与可选 SIMD 后，结果仍保持稳定一致
 
 ### 性能方面
-- 相对 Python 基线：
-  - C++ 绑定约 `223x ~ 263x`
-  - C 绑定约 `262x ~ 288x`
-- 相对串行 CLI：
-  - OpenMP `1` 线程约 `1.02x`
-  - OpenMP `4` 线程约 **`2.17x`**
+- 相对串行 CLI 基线：
+  - SIMD 路径约 `1.76x`
+  - OpenMP + SIMD 路径约 **`2.12x`**
+- 最近一次端到端对比中：
+  - Python 原始实现约 `226.99s`
+  - 最新 OpenMP + SIMD CLI 约 `0.69s`
+  - 相对原始 Python 约 **`329x`**
 
 ### 最终判断
 - **OpenMP 优化版本已经实现并验证通过**
-- **在 CLI 原生路径上已经体现出明确的并行收益**
-- **在 Python 绑定路径上，当前测试规模下收益不明显，但功能与结果完全正确**
+- **在 CLI 原生路径上，OpenMP 与 SIMD 叠加后已体现出更稳定的综合收益**
+- **当前主热点仍是 `max_inscribed_circle()`，但 `get_closest_points()` 已逐渐上升为值得继续关注的次热点**
 
 ---
 
