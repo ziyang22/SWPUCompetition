@@ -3,8 +3,11 @@
 
 CXX = g++
 CC = cc
-CXXFLAGS = -std=c++17 -Wall -Wextra -O3
-CFLAGS = -std=c11 -Wall -Wextra -O3
+BASE_CXXFLAGS = -std=c++17 -Wall -Wextra
+BASE_CFLAGS = -std=c11 -Wall -Wextra
+OPT_FLAGS = -O3
+CXXFLAGS = $(BASE_CXXFLAGS) $(OPT_FLAGS)
+CFLAGS = $(BASE_CFLAGS) $(OPT_FLAGS)
 LDFLAGS =
 
 # Detect OS
@@ -20,6 +23,27 @@ ifeq ($(UNAME_S),Darwin)
 endif
 
 USE_OPENMP ?= 0
+USE_SIMD ?= 0
+
+# Directories
+SRC_DIR = cpp_src
+C_SRC_DIR = c_src
+BUILD_DIR = build
+SCRIPT_DIR = scripts
+
+PROFILE_MODE ?= release
+PROFILE_MODE_FLAGS =
+ifeq ($(PROFILE_MODE),perf)
+    PROFILE_MODE_FLAGS = -g -O3 -fno-omit-frame-pointer
+else ifeq ($(PROFILE_MODE),gprof)
+    PROFILE_MODE_FLAGS = -pg -g -O2
+    LDFLAGS += -pg
+else ifeq ($(PROFILE_MODE),callgrind)
+    PROFILE_MODE_FLAGS = -g -O2
+endif
+
+CXXFLAGS = $(BASE_CXXFLAGS) $(OPT_FLAGS) $(PROFILE_MODE_FLAGS)
+CFLAGS = $(BASE_CFLAGS) $(OPT_FLAGS) $(PROFILE_MODE_FLAGS)
 
 ifeq ($(USE_OPENMP),1)
     ifeq ($(UNAME_S),Darwin)
@@ -34,11 +58,19 @@ ifeq ($(USE_OPENMP),1)
     LDFLAGS += $(OPENMP_LDFLAGS)
 endif
 
-# Directories
-SRC_DIR = cpp_src
-C_SRC_DIR = c_src
-BUILD_DIR = build
-SCRIPT_DIR = scripts
+ifeq ($(USE_SIMD),1)
+    SIMD_CFLAGS = -DPROJECTION_C_USE_SIMD
+    ifeq ($(UNAME_S),Darwin)
+        ifeq ($(shell uname -m),arm64)
+            $(warning USE_SIMD=1 requested on Apple Silicon; AVX2/FMA flags are skipped and scalar fallback will be used)
+        else
+            SIMD_CFLAGS += -mavx2 -mfma
+        endif
+    else
+        SIMD_CFLAGS += -mavx2 -mfma
+    endif
+    CFLAGS += $(SIMD_CFLAGS)
+endif
 
 # Python environment
 CONDA_ENV = SWPUCompetiton
@@ -51,7 +83,7 @@ C_SOURCES = $(C_SRC_DIR)/projection_c.c
 HEADERS = $(SRC_DIR)/projection_method.h $(SRC_DIR)/cnpy_simple.h $(C_SRC_DIR)/projection_c.h
 OBJECTS = $(BUILD_DIR)/main.o $(BUILD_DIR)/projection_method.o $(BUILD_DIR)/file_io_improved.o $(BUILD_DIR)/projection_c.o
 
-.PHONY: all clean run test
+.PHONY: all clean run test profile-perf profile-gprof profile-callgrind profile-openmp help
 
 all: $(TARGET)
 
@@ -84,12 +116,40 @@ test: $(TARGET)
 	@echo "Running validation..."
 	$(PYTHON) $(SCRIPT_DIR)/check_output.py
 
+profile-perf:
+	$(MAKE) clean
+	$(MAKE) PROFILE_MODE=perf
+
+profile-gprof:
+	$(MAKE) clean
+	$(MAKE) PROFILE_MODE=gprof
+
+profile-callgrind:
+	$(MAKE) clean
+	$(MAKE) PROFILE_MODE=callgrind
+
+profile-openmp:
+	$(MAKE) clean
+	$(MAKE) USE_OPENMP=1 PROFILE_MODE=perf
+
 help:
 	@echo "Available targets:"
 	@echo "  all         - Build the project (default)"
 	@echo "  clean       - Remove build artifacts"
 	@echo "  run         - Build and run with default parameters"
 	@echo "  test        - Build, run, and validate output"
+	@echo "  profile-perf      - Clean build with perf-friendly flags (-g -O3 -fno-omit-frame-pointer)"
+	@echo "  profile-gprof     - Clean build with gprof flags (-pg -g -O2)"
+	@echo "  profile-callgrind - Clean build with callgrind-friendly flags (-g -O2)"
+	@echo "  profile-openmp    - Clean OpenMP perf build (USE_OPENMP=1)"
 	@echo ""
-	@echo "Example:"
+	@echo "Optional variables:"
+	@echo "  USE_OPENMP=1      - Enable OpenMP parallelism"
+	@echo "  USE_SIMD=1        - Enable optional AVX2/FMA SIMD path for projection_c.c"
+	@echo ""
+	@echo "Examples:"
 	@echo "  make test"
+	@echo "  make profile-perf"
+	@echo "  make profile-openmp"
+	@echo "  make USE_SIMD=1"
+	@echo "  make USE_OPENMP=1 USE_SIMD=1"

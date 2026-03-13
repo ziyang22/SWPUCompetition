@@ -51,13 +51,31 @@ typedef struct {
     double closest_points_time;
     double max_inscribed_circle_time;
     double residual_time;
+    double window_time_total;
+    double window_time_max;
+    double direction_time_total;
+    double direction_time_max;
+    double projection_time_max;
+    double mean_reduction_time_max;
+    double point3d_to_2d_time_max;
+    double closest_points_time_max;
+    double max_inscribed_circle_time_max;
     size_t window_count;
     size_t direction_count_total;
+    size_t direction_count_max;
     size_t empty_projection_direction_count;
+    size_t non_empty_projection_direction_count;
     size_t projected_points_total;
     size_t closest_points_total;
     size_t projected_points_max;
     size_t closest_points_max;
+    size_t projection_call_count;
+    size_t mean_reduction_call_count;
+    size_t point3d_to_2d_call_count;
+    size_t closest_points_call_count;
+    size_t max_inscribed_circle_call_count;
+    int openmp_enabled;
+    int openmp_thread_count;
 } projection_c_profile_summary;
 
 typedef struct {

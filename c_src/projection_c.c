@@ -1,6 +1,10 @@
+#define _POSIX_C_SOURCE 199309L
 #include "projection_c.h"
 
 #include <math.h>
+#if defined(PROJECTION_C_USE_SIMD) && defined(__AVX2__)
+#include <immintrin.h>
+#endif
 #ifdef _OPENMP
 #include <omp.h>
 #endif
@@ -392,9 +396,105 @@ static int circle_candidate_better(
     return 0;
 }
 
+static double min_distance_squared_scalar(
+    const projection_c_point2d* point_data,
+    size_t point_count,
+    double x0,
+    double y0
+) {
+    double min_dist_sq = 1e300;
+    size_t p;
+
+    for (p = 0; p < point_count; ++p) {
+        double dx = point_data[p].x - x0;
+        double dy = point_data[p].y - y0;
+        double dist_sq = dx * dx + dy * dy;
+        if (dist_sq < min_dist_sq) {
+            min_dist_sq = dist_sq;
+        }
+    }
+
+    return min_dist_sq;
+}
+
+#if defined(PROJECTION_C_USE_SIMD) && defined(__AVX2__)
+static double min_distance_squared_simd(
+    const projection_c_point2d* point_data,
+    size_t point_count,
+    double x0,
+    double y0
+) {
+    __m256d x0_vec = _mm256_set1_pd(x0);
+    __m256d y0_vec = _mm256_set1_pd(y0);
+    __m256d min_vec = _mm256_set1_pd(1e300);
+    size_t p = 0;
+
+    for (; p + 3 < point_count; p += 4) {
+        __m256d x_vec = _mm256_set_pd(
+            point_data[p + 3].x,
+            point_data[p + 2].x,
+            point_data[p + 1].x,
+            point_data[p].x
+        );
+        __m256d y_vec = _mm256_set_pd(
+            point_data[p + 3].y,
+            point_data[p + 2].y,
+            point_data[p + 1].y,
+            point_data[p].y
+        );
+        __m256d dx_vec = _mm256_sub_pd(x_vec, x0_vec);
+        __m256d dy_vec = _mm256_sub_pd(y_vec, y0_vec);
+        __m256d dist_sq_vec;
+#if defined(__FMA__)
+        dist_sq_vec = _mm256_fmadd_pd(dy_vec, dy_vec, _mm256_mul_pd(dx_vec, dx_vec));
+#else
+        dist_sq_vec = _mm256_add_pd(_mm256_mul_pd(dx_vec, dx_vec), _mm256_mul_pd(dy_vec, dy_vec));
+#endif
+        min_vec = _mm256_min_pd(min_vec, dist_sq_vec);
+    }
+
+    {
+        double min_values[4];
+        double min_dist_sq;
+        _mm256_storeu_pd(min_values, min_vec);
+        min_dist_sq = min_values[0];
+        if (min_values[1] < min_dist_sq) min_dist_sq = min_values[1];
+        if (min_values[2] < min_dist_sq) min_dist_sq = min_values[2];
+        if (min_values[3] < min_dist_sq) min_dist_sq = min_values[3];
+
+        for (; p < point_count; ++p) {
+            double dx = point_data[p].x - x0;
+            double dy = point_data[p].y - y0;
+            double dist_sq = dx * dx + dy * dy;
+            if (dist_sq < min_dist_sq) {
+                min_dist_sq = dist_sq;
+            }
+        }
+
+        return min_dist_sq;
+    }
+}
+#endif
+
+static double min_distance_squared(
+    const projection_c_point2d* point_data,
+    size_t point_count,
+    double x0,
+    double y0
+) {
+#if defined(PROJECTION_C_USE_SIMD) && defined(__AVX2__)
+    return min_distance_squared_simd(point_data, point_count, x0, y0);
+#else
+    return min_distance_squared_scalar(point_data, point_count, x0, y0);
+#endif
+}
+
 static projection_c_circle max_inscribed_circle(const point2d_buffer* points, int grid_num) {
     projection_c_circle max_circle = {0.0, 0.0, 0.0};
+    const projection_c_point2d* point_data = points->data;
+    size_t point_count = points->size;
     double max_radius = 0.0;
+    double max_radius_sq = -1.0;
     double xmin;
     double xmax;
     double ymin;
@@ -406,18 +506,18 @@ static projection_c_circle max_inscribed_circle(const point2d_buffer* points, in
     int i;
     size_t p;
 
-    if (points->size == 0) {
+    if (point_count == 0) {
         return max_circle;
     }
 
-    xmin = xmax = points->data[0].x;
-    ymin = ymax = points->data[0].y;
+    xmin = xmax = point_data[0].x;
+    ymin = ymax = point_data[0].y;
 
-    for (p = 1; p < points->size; ++p) {
-        if (points->data[p].x < xmin) xmin = points->data[p].x;
-        if (points->data[p].x > xmax) xmax = points->data[p].x;
-        if (points->data[p].y < ymin) ymin = points->data[p].y;
-        if (points->data[p].y > ymax) ymax = points->data[p].y;
+    for (p = 1; p < point_count; ++p) {
+        if (point_data[p].x < xmin) xmin = point_data[p].x;
+        if (point_data[p].x > xmax) xmax = point_data[p].x;
+        if (point_data[p].y < ymin) ymin = point_data[p].y;
+        if (point_data[p].y > ymax) ymax = point_data[p].y;
     }
 
     xmin *= 0.3;
@@ -432,6 +532,7 @@ static projection_c_circle max_inscribed_circle(const point2d_buffer* points, in
 #pragma omp parallel
     {
         double thread_best_radius = 0.0;
+        double thread_best_radius_sq = -1.0;
         int thread_best_i = -1;
         int thread_best_j = -1;
 
@@ -441,17 +542,16 @@ static projection_c_circle max_inscribed_circle(const point2d_buffer* points, in
             double x0 = xmin + i * x_step;
             for (j = 0; j < grid_num; ++j) {
                 double y0 = ymin + j * y_step;
-                projection_c_point2d center = {x0, y0};
-                double min_dist = 1e300;
-                for (p = 0; p < points->size; ++p) {
-                    projection_c_point2d delta = point2d_sub(points->data[p], center);
-                    double dist = point2d_norm(delta);
-                    if (dist < min_dist) {
-                        min_dist = dist;
-                    }
-                }
-                if (circle_candidate_better(min_dist, i, j, thread_best_radius, thread_best_i, thread_best_j)) {
-                    thread_best_radius = min_dist;
+                double min_dist_sq = min_distance_squared(point_data, point_count, x0, y0);
+                if (min_dist_sq > thread_best_radius_sq + PROJECTION_C_EPS) {
+                    thread_best_radius_sq = min_dist_sq;
+                    thread_best_radius = sqrt(min_dist_sq);
+                    thread_best_i = i;
+                    thread_best_j = j;
+                } else if (fabs(min_dist_sq - thread_best_radius_sq) <= PROJECTION_C_EPS &&
+                           circle_candidate_better(sqrt(min_dist_sq), i, j, thread_best_radius, thread_best_i, thread_best_j)) {
+                    thread_best_radius_sq = min_dist_sq;
+                    thread_best_radius = sqrt(min_dist_sq);
                     thread_best_i = i;
                     thread_best_j = j;
                 }
@@ -462,6 +562,7 @@ static projection_c_circle max_inscribed_circle(const point2d_buffer* points, in
         {
             if (circle_candidate_better(thread_best_radius, thread_best_i, thread_best_j, max_radius, best_i, best_j)) {
                 max_radius = thread_best_radius;
+                max_radius_sq = thread_best_radius_sq;
                 best_i = thread_best_i;
                 best_j = thread_best_j;
             }
@@ -473,17 +574,16 @@ static projection_c_circle max_inscribed_circle(const point2d_buffer* points, in
         double x0 = xmin + i * x_step;
         for (j = 0; j < grid_num; ++j) {
             double y0 = ymin + j * y_step;
-            projection_c_point2d center = {x0, y0};
-            double min_dist = 1e300;
-            for (p = 0; p < points->size; ++p) {
-                projection_c_point2d delta = point2d_sub(points->data[p], center);
-                double dist = point2d_norm(delta);
-                if (dist < min_dist) {
-                    min_dist = dist;
-                }
-            }
-            if (circle_candidate_better(min_dist, i, j, max_radius, best_i, best_j)) {
-                max_radius = min_dist;
+            double min_dist_sq = min_distance_squared(point_data, point_count, x0, y0);
+            if (min_dist_sq > max_radius_sq + PROJECTION_C_EPS) {
+                max_radius_sq = min_dist_sq;
+                max_radius = sqrt(min_dist_sq);
+                best_i = i;
+                best_j = j;
+            } else if (fabs(min_dist_sq - max_radius_sq) <= PROJECTION_C_EPS &&
+                       circle_candidate_better(sqrt(min_dist_sq), i, j, max_radius, best_i, best_j)) {
+                max_radius_sq = min_dist_sq;
+                max_radius = sqrt(min_dist_sq);
                 best_i = i;
                 best_j = j;
             }
@@ -560,6 +660,13 @@ int projection_c_calculate(
     }
 
     memset(output, 0, sizeof(*output));
+#ifdef _OPENMP
+    output->profile.openmp_enabled = 1;
+    output->profile.openmp_thread_count = omp_get_max_threads();
+#else
+    output->profile.openmp_enabled = 0;
+    output->profile.openmp_thread_count = 1;
+#endif
 
     if (input == NULL || config == NULL || input->trajectory == NULL || input->point_3d == NULL) {
         set_error(output, PROJECTION_C_ERROR_INVALID_ARGUMENT, "invalid input");
@@ -676,6 +783,9 @@ int projection_c_calculate(
         direction_generation_end = now_seconds();
         output->profile.direction_generation_time += direction_generation_end - direction_generation_start;
         output->profile.direction_count_total += directions.size;
+        if (directions.size > output->profile.direction_count_max) {
+            output->profile.direction_count_max = directions.size;
+        }
         output->profile.window_count += 1;
 
         plane_normal.x = input->trajectory[j - 1].position_x - input->trajectory[j].position_x;
@@ -691,6 +801,8 @@ int projection_c_calculate(
         direction_loop_start = now_seconds();
         for (m = 0; m < directions.size; ++m) {
             int start_idx = j - step;
+            double direction_start = now_seconds();
+            double direction_end;
             double projection_start;
             double projection_end;
             double mean_start;
@@ -727,12 +839,22 @@ int projection_c_calculate(
             }
             projection_end = now_seconds();
             output->profile.projection_time += projection_end - projection_start;
+            output->profile.projection_call_count += 1;
+            if (projection_end - projection_start > output->profile.projection_time_max) {
+                output->profile.projection_time_max = projection_end - projection_start;
+            }
             window_projection_time += projection_end - projection_start;
 
             if (projected.size == 0) {
                 output->profile.empty_projection_direction_count += 1;
+                direction_end = now_seconds();
+                output->profile.direction_time_total += direction_end - direction_start;
+                if (direction_end - direction_start > output->profile.direction_time_max) {
+                    output->profile.direction_time_max = direction_end - direction_start;
+                }
                 continue;
             }
+            output->profile.non_empty_projection_direction_count += 1;
             output->profile.projected_points_total += projected.size;
             if (projected.size > output->profile.projected_points_max) {
                 output->profile.projected_points_max = projected.size;
@@ -745,6 +867,10 @@ int projection_c_calculate(
             mean_proj = point3d_scale(mean_proj, 1.0 / (double)projected.size);
             mean_end = now_seconds();
             output->profile.mean_reduction_time += mean_end - mean_start;
+            output->profile.mean_reduction_call_count += 1;
+            if (mean_end - mean_start > output->profile.mean_reduction_time_max) {
+                output->profile.mean_reduction_time_max = mean_end - mean_start;
+            }
             window_mean_time += mean_end - mean_start;
 
             point3d_to_2d_start = now_seconds();
@@ -754,6 +880,10 @@ int projection_c_calculate(
             }
             point3d_to_2d_end = now_seconds();
             output->profile.point3d_to_2d_time += point3d_to_2d_end - point3d_to_2d_start;
+            output->profile.point3d_to_2d_call_count += 1;
+            if (point3d_to_2d_end - point3d_to_2d_start > output->profile.point3d_to_2d_time_max) {
+                output->profile.point3d_to_2d_time_max = point3d_to_2d_end - point3d_to_2d_start;
+            }
             window_point3d_to_2d_time += point3d_to_2d_end - point3d_to_2d_start;
 
             closest_start = now_seconds();
@@ -763,6 +893,10 @@ int projection_c_calculate(
             }
             closest_end = now_seconds();
             output->profile.closest_points_time += closest_end - closest_start;
+            output->profile.closest_points_call_count += 1;
+            if (closest_end - closest_start > output->profile.closest_points_time_max) {
+                output->profile.closest_points_time_max = closest_end - closest_start;
+            }
             window_closest_time += closest_end - closest_start;
             output->profile.closest_points_total += closest_2d.size;
             if (closest_2d.size > output->profile.closest_points_max) {
@@ -773,10 +907,20 @@ int projection_c_calculate(
             current_circle = max_inscribed_circle(&closest_2d, 30);
             circle_end = now_seconds();
             output->profile.max_inscribed_circle_time += circle_end - circle_start;
+            output->profile.max_inscribed_circle_call_count += 1;
+            if (circle_end - circle_start > output->profile.max_inscribed_circle_time_max) {
+                output->profile.max_inscribed_circle_time_max = circle_end - circle_start;
+            }
             window_circle_time += circle_end - circle_start;
             if (current_circle.radius > max_r) {
                 max_r = current_circle.radius;
                 min_circle = current_circle;
+            }
+
+            direction_end = now_seconds();
+            output->profile.direction_time_total += direction_end - direction_start;
+            if (direction_end - direction_start > output->profile.direction_time_max) {
+                output->profile.direction_time_max = direction_end - direction_start;
             }
         }
         direction_loop_end = now_seconds();
@@ -791,6 +935,10 @@ int projection_c_calculate(
         row.center_y = min_circle.center_y;
         row.diameter = min_circle.radius * 2.0;
         window_total_time = now_seconds() - start_time;
+        output->profile.window_time_total += window_total_time;
+        if (window_total_time > output->profile.window_time_max) {
+            output->profile.window_time_max = window_total_time;
+        }
         row.current_time = window_total_time;
         t_all += row.current_time;
         row.total_time = t_all;

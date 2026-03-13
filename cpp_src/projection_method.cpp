@@ -354,23 +354,73 @@ bool ProjectionCalculator::calculate(
     min_radius = output.min_radius;
     bool passed = output.passed != 0;
 
-    std::cout << "\nC 串行热点摘要:" << std::endl;
-    std::cout << "  窗口数: " << output.profile.window_count << std::endl;
-    std::cout << "  最大内切圆时间占比: " << std::fixed << std::setprecision(2)
-              << (results.empty() || results.back().total_time <= 0.0 ? 0.0 : output.profile.max_inscribed_circle_time * 100.0 / results.back().total_time)
-              << "%" << std::endl;
-    std::cout << "  平面投影时间占比: "
-              << (results.empty() || results.back().total_time <= 0.0 ? 0.0 : output.profile.projection_time * 100.0 / results.back().total_time)
-              << "%" << std::endl;
-    std::cout << "  3D->2D 时间占比: "
-              << (results.empty() || results.back().total_time <= 0.0 ? 0.0 : output.profile.point3d_to_2d_time * 100.0 / results.back().total_time)
-              << "%" << std::endl;
-    std::cout << "  closest 点提取时间占比: "
-              << (results.empty() || results.back().total_time <= 0.0 ? 0.0 : output.profile.closest_points_time * 100.0 / results.back().total_time)
-              << "%" << std::endl;
-    std::cout << "  平均每窗口方向数: "
-              << (output.profile.window_count == 0 ? 0.0 : static_cast<double>(output.profile.direction_count_total) / static_cast<double>(output.profile.window_count))
-              << std::endl;
+    std::cout << "\nC 后端热点摘要:" << std::endl;
+    double total_time = results.empty() ? 0.0 : results.back().total_time;
+    double window_count = static_cast<double>(output.profile.window_count);
+    double direction_count = static_cast<double>(output.profile.direction_count_total);
+    auto percent_of_total = [total_time](double value) {
+        return total_time <= 0.0 ? 0.0 : value * 100.0 / total_time;
+    };
+    auto average_per_window = [window_count](double value) {
+        return window_count <= 0.0 ? 0.0 : value / window_count;
+    };
+    auto average_per_direction = [direction_count](double value) {
+        return direction_count <= 0.0 ? 0.0 : value / direction_count;
+    };
+    auto average_per_call = [](double value, size_t count) {
+        return count == 0 ? 0.0 : value / static_cast<double>(count);
+    };
+
+    std::cout << std::fixed << std::setprecision(2);
+    std::cout << "  总耗时: " << total_time << "s" << std::endl;
+    std::cout << "  OpenMP: " << (output.profile.openmp_enabled ? "enabled" : "disabled")
+              << ", 线程数: " << output.profile.openmp_thread_count << std::endl;
+    std::cout << "  窗口数: " << output.profile.window_count
+              << ", 平均每窗口耗时: " << average_per_window(output.profile.window_time_total) << "s"
+              << ", 最大窗口耗时: " << output.profile.window_time_max << "s" << std::endl;
+    std::cout << "  总方向数: " << output.profile.direction_count_total
+              << ", 平均每窗口方向数: " << average_per_window(direction_count)
+              << ", 最大单窗口方向数: " << output.profile.direction_count_max << std::endl;
+    std::cout << "  空投影方向: " << output.profile.empty_projection_direction_count
+              << " (" << average_per_direction(static_cast<double>(output.profile.empty_projection_direction_count) * 100.0) << "%)"
+              << ", 非空投影方向: " << output.profile.non_empty_projection_direction_count << std::endl;
+    std::cout << "  平均每方向耗时: " << average_per_direction(output.profile.direction_time_total) << "s"
+              << ", 最大方向耗时: " << output.profile.direction_time_max << "s" << std::endl;
+    std::cout << "  平均投影点数: " << average_per_call(static_cast<double>(output.profile.projected_points_total), output.profile.non_empty_projection_direction_count)
+              << ", 最大投影点数: " << output.profile.projected_points_max << std::endl;
+    std::cout << "  平均 closest 点数: " << average_per_call(static_cast<double>(output.profile.closest_points_total), output.profile.closest_points_call_count)
+              << ", 最大 closest 点数: " << output.profile.closest_points_max << std::endl;
+    std::cout << "  setup: " << output.profile.setup_time << "s (" << percent_of_total(output.profile.setup_time) << "%, avg/window "
+              << average_per_window(output.profile.setup_time) << "s)" << std::endl;
+    std::cout << "  direction_generation: " << output.profile.direction_generation_time << "s ("
+              << percent_of_total(output.profile.direction_generation_time) << "%, avg/window "
+              << average_per_window(output.profile.direction_generation_time) << "s)" << std::endl;
+    std::cout << "  line_plane_multiple: " << output.profile.projection_time << "s ("
+              << percent_of_total(output.profile.projection_time) << "%, avg/call "
+              << average_per_call(output.profile.projection_time, output.profile.projection_call_count) << "s, max/call "
+              << output.profile.projection_time_max << "s)" << std::endl;
+    std::cout << "  mean_reduction: " << output.profile.mean_reduction_time << "s ("
+              << percent_of_total(output.profile.mean_reduction_time) << "%, avg/call "
+              << average_per_call(output.profile.mean_reduction_time, output.profile.mean_reduction_call_count) << "s, max/call "
+              << output.profile.mean_reduction_time_max << "s)" << std::endl;
+    std::cout << "  point3d_to_2d: " << output.profile.point3d_to_2d_time << "s ("
+              << percent_of_total(output.profile.point3d_to_2d_time) << "%, avg/call "
+              << average_per_call(output.profile.point3d_to_2d_time, output.profile.point3d_to_2d_call_count) << "s, max/call "
+              << output.profile.point3d_to_2d_time_max << "s)" << std::endl;
+    std::cout << "  get_closest_points: " << output.profile.closest_points_time << "s ("
+              << percent_of_total(output.profile.closest_points_time) << "%, avg/call "
+              << average_per_call(output.profile.closest_points_time, output.profile.closest_points_call_count) << "s, max/call "
+              << output.profile.closest_points_time_max << "s)" << std::endl;
+    std::cout << "  max_inscribed_circle: " << output.profile.max_inscribed_circle_time << "s ("
+              << percent_of_total(output.profile.max_inscribed_circle_time) << "%, avg/call "
+              << average_per_call(output.profile.max_inscribed_circle_time, output.profile.max_inscribed_circle_call_count) << "s, max/call "
+              << output.profile.max_inscribed_circle_time_max << "s)" << std::endl;
+    std::cout << "  direction_loop: " << output.profile.direction_loop_time << "s ("
+              << percent_of_total(output.profile.direction_loop_time) << "%, avg/window "
+              << average_per_window(output.profile.direction_loop_time) << "s)" << std::endl;
+    std::cout << "  residual: " << output.profile.residual_time << "s ("
+              << percent_of_total(output.profile.residual_time) << "%, avg/window "
+              << average_per_window(output.profile.residual_time) << "s)" << std::endl;
 
     if (!passed) {
         std::cout << "保存最后10个步长信息..." << std::endl;
