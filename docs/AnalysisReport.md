@@ -131,13 +131,237 @@
 
 ---
 
-## 6. 相关文件
+## 7. Roofline 模型理论计算
+
+### 7.1 Roofline 模型原理
+
+Roofline 模型是一个可视化性能分析工具，用于确定计算任务是**内存带宽受限**还是**计算能力受限**。
+
+**核心公式**：
+- **内存带宽受限区**（左侧）：性能 = AI × 内存带宽
+- **计算能力受限区**（右侧）：性能 = 峰值算力
+
+其中 **AI (Operational Intensity)** = FLOPs / Byte（每字节内存传输执行的浮点运算数）
+
+**脊点 (Ridge Point)**：AI = 峰值算力 / 内存带宽
+
+### 7.2 硬件参数
+
+| 参数 | 值 | 说明 |
+|------|------|------|
+| 峰值算力 | 50 GFLOPS | AVX2 @ 4.0GHz (4 FLOPS/cycle × 4核 × 3.2GHz) |
+| 内存带宽 | 50 GB/s | DDR4-3200 双通道 |
+| 脊点 | **1.0 FLOP/Byte** | 内存带宽与计算能力的平衡点 |
+
+### 7.3 各函数 AI 理论计算
+
+AI (Operational Intensity) = **FLOPs / Bytes**，即每字节内存传输所执行的浮点运算数。
+
+#### 硬件假设
+- 数据类型：`double` = 8 字节
+- 内存带宽：50 GB/s
+- 峰值算力：50 GFLOPS
+
+---
+
+#### 函数 1: max_inscribed_circle (主热点，78.76%)
+
+**功能**：在 2D 点云中找到最大内切圆
+
+**典型参数**：
+- `grid_num = 30`（网格大小）
+- `point_count ≈ 36`（边界点数）
+
+**FLOPs 计算**：
+```
+外层循环: grid_num × grid_num = 30 × 30 = 900 次
+内层 min_distance_squared:
+  - 每次: 2 次减法 + 2 次乘法 = 4 FLOPs
+  - 共: 900 × 36 × 4 = 129,600 FLOPs
+
+边界更新 + sqrt:
+  - 每次: 3 次比较 + 1 次 sqrt ≈ 5 FLOPs
+  - 共: 900 × 5 = 4,500 FLOPs
+
+总计: 129,600 + 4,500 = 134,100 FLOPs
+```
+
+**内存访问计算**（假设缓存不命中）：
+```
+读: 900 × 36 × 16 bytes = 518,400 bytes
+写: 900 × 8 bytes = 7,200 bytes
+总: 525,600 bytes
+```
+
+**AI** = 134,100 / 525,600 = **0.255 FLOPs/Byte**
+
+---
+
+#### 函数 2: get_closest_points (第二热点，18.05%)
+
+**功能**：按角度分组，找出每组中距离最近的点
+
+**典型参数**：
+- 输入点数: ~96 个
+
+**FLOPs 计算**：
+```
+每个点:
+  - atan2: ≈ 50 FLOPs
+  - norm (sqrt(x² + y²)): 3 次乘法 + 1 次 sqrt ≈ 5 FLOPs
+  - 分组比较: 2-3 次比较
+
+总计: 96 × 60 = 5,760 FLOPs
+```
+
+**内存访问计算**：
+```
+读: 96 × 2 × 8 = 1,536 bytes
+写: 96 × 2 × 8 = 1,536 bytes
+临时数组: 96 × 8 × 3 = 2,304 bytes
+总: 5,376 bytes
+```
+
+**AI** = 5,760 / 5,376 = **1.07 FLOPs/Byte**
+
+---
+
+#### 函数 3: line_plane_multiple (1.00%)
+
+**功能**：将多个 3D 点沿投影方向投影到平面
+
+**典型参数**：
+- 深度点数: ~2 个
+- 每深度环形点数: 24 个
+
+**FLOPs 计算**（单次 line_plane）：
+```
+t_numerator: 3 次乘法 + 1 次加法 = 4 FLOPs
+t_denominator: 3 次乘法 + 2 次加法 = 5 FLOPs
+t = 除法: 1 FLOP
+out_point: 6 次乘法 + 3 次加法 = 9 FLOPs
+
+单次: 4 + 5 + 1 + 9 = 19 FLOPs
+总计: 2 × 24 × 19 = 912 FLOPs
+```
+
+**内存访问计算**：
+```
+读: 48 × 3 × 8 = 1,152 bytes
+写: 48 × 3 × 8 = 1,152 bytes
+总: 2,304 bytes
+```
+
+**AI** = 912 / 2,304 = **0.396 FLOPs/Byte**
+
+---
+
+#### 函数 4: point3d_to_2d (0.74%)
+
+**功能**：将 3D 点投影到 2D 平面坐标系
+
+**典型参数**：
+- 投影点数: ~48 个
+
+**FLOPs 计算**：
+```
+初始化:
+  - 2 次 sub: 6 FLOPs
+  - 2 次 cross: 9 FLOPs
+  - 2 次 norm: 12 FLOPs
+
+每点投影:
+  - 2 次 sub + 2 次 dot = 16 FLOPs
+
+总计: 27 + 48 × 16 = 795 FLOPs
+```
+
+**内存访问计算**：
+```
+读: 48 × 3 × 8 = 1,152 bytes
+写: 48 × 2 × 8 = 768 bytes
+总: 1,920 bytes
+```
+
+**AI** = 795 / 1,920 = **0.414 FLOPs/Byte**
+
+---
+
+### 7.4 AI 汇总表
+
+| 函数 | 理论 AI | 时间占比 | 受限类型 |
+|------|---------|----------|----------|
+| max_inscribed_circle | 0.255 | 78.76% | 内存带宽 |
+| get_closest_points | 1.07 | 18.05% | 计算能力 |
+| line_plane_multiple | 0.396 | 1.00% | 内存带宽 |
+| point3d_to_2d | 0.414 | 0.74% | 内存带宽 |
+
+**脊点**: 1.0 FLOPs/Byte
+- AI < 1.0: 内存带宽受限
+- AI > 1.0: 计算能力受限
+
+### 7.5 Roofline 图示
+
+![Roofline Model](roofline_plot.png)
+
+### 7.6 理论分析
+
+根据 Roofline 模型：
+- `max_inscribed_circle` (AI=0.255)、`line_plane_multiple` (AI=0.396)、`point3d_to_2d` (AI=0.414) 位于脊点左侧，属于**内存带宽受限**
+- `get_closest_points` (AI=1.07) 位于脊点右侧，属于**计算能力受限**
+
+---
+
+### 7.7 实际运行时 Roofline 分析
+
+**运行参数**：工具长度 1.0m，半径 0.025m，深度 3300-3400m，步长 0.5m，OpenMP 12 线程
+
+**运行数据**：
+| 参数 | 值 |
+|------|------|
+| 总耗时 | 0.77s |
+| 窗口数 | 200 |
+| 总方向数 | 34,732 |
+| 每窗口平均方向数 | 173.66 |
+| 每方向平均投影点数 | 96.0 |
+| 每方向平均最近点数 | 40.34 |
+
+**实际 AI 计算**（基于实际运行数据）：
+
+| 函数 | FLOPs | 内存访问 (Bytes) | 实际 AI | 时间占比 |
+|------|-------|------------------|---------|----------|
+| max_inscribed_circle | 5.04×10⁹ | 2.02×10¹⁰ | **0.250** | 79.82% |
+| get_closest_points | 2.00×10⁸ | 1.52×10⁸ | **1.320** | 17.08% |
+| point3d_to_2d | 5.33×10⁷ | 1.33×10⁸ | **0.400** | 0.72% |
+| line_plane_multiple | 6.34×10⁷ | 1.60×10⁸ | **0.396** | 0.97% |
+
+**实际 Roofline 图像**：
+
+![Actual Roofline](roofline_actual.png)
+
+**实际运行结论**：
+- `max_inscribed_circle` (AI=0.25)：内存带宽受限
+- `get_closest_points` (AI=1.32)：计算能力受限（位于脊点右侧）
+- `line_plane_multiple` (AI=0.40)：内存带宽受限
+- `point3d_to_2d` (AI=0.40)：内存带宽受限
+
+**与理论值对比**：
+| 函数 | 理论 AI | 实际 AI | 差异 |
+|------|---------|---------|------|
+| max_inscribed_circle | 0.255 | 0.250 | -2% |
+| get_closest_points | 1.070 | 1.320 | +23% |
+| point3d_to_2d | 0.414 | 0.400 | -3% |
+| line_plane_multiple | 0.396 | 0.396 | 0% |
+
+差异原因：`get_closest_points` 的分组机制减少了对所有点的处理，实际 AI 略高于理论值。
+
+---
+
+## 8. 相关文件
 
 - 核心实现：`c_src/projection_c.c`
 - 构建配置：`Makefile`
 - Python 绑定：`cpp_src/python_bindings/`
 - 测试脚本：`scripts/test_cpp_binding.py`
-- 阶段文档：
-  - `docs/STAGE3_C_PORT_SUMMARY.md`
-  - `docs/STAGE4_OPENMP_SUMMARY.md`
-  - `docs/OPENMP_BENCHMARK_REPORT.md`
+- Roofline 分析脚本：`scripts/roofline_analysis.py`（理论值）
+- 实际 Roofline 脚本：`scripts/roofline_actual.py`（运行时数据）
