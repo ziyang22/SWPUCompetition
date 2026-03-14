@@ -1,240 +1,298 @@
-# 快速开始指南
+# 快速运行指南
 
-## 30 秒快速开始
-
-```bash
-# 编译
-make
-
-# 运行
-./projection_method
-
-# 验证
-python check_output.py
-```
-
-就这么简单！
+本文档按模块/版本提供运行流程，帮助用户快速选择并运行适合自己需求的版本。
 
 ---
 
-## 详细步骤
+## 1. 环境准备
 
-### 步骤 1: 准备环境
-
-确保你有：
-- ✅ C++17 编译器 (g++ 7+, clang++ 5+)
-- ✅ 输入数据文件: `all_data.csv` 和 `Point_3D.npy`
-- ✅ Python 3.8+ (用于验证，可选)
-
-检查编译器：
-```bash
-g++ --version
-```
-
-### 步骤 2: 编译程序
-
-**选项 A - 最简单**
-```bash
-./test_compile.sh
-```
-
-**选项 B - 使用 Makefile**
-```bash
-make
-```
-
-**选项 C - 使用 CMake**
-```bash
-mkdir build && cd build
-cmake ..
-make
-cd ..
-```
-
-### 步骤 3: 运行程序
-
-**默认参数**
-```bash
-./projection_method
-```
-
-**自定义参数**
-```bash
-./projection_method 1.0 0.025 3300 3400 0.5
-#                   ↑   ↑     ↑    ↑    ↑
-#                   |   |     |    |    步长(m)
-#                   |   |     |    截止深度(m)
-#                   |   |     起始深度(m)
-#                   |   工具半径(m)
-#                   工具长度(m)
-```
-
-### 步骤 4: 查看结果
-
-程序会生成输出文件：
-
-**如果通过**
-- `pass_last_5m_3400m.txt` - 最后 5 米的计算数据
-
-**如果卡住**
-- `stuck_point_3393.5m.txt` - 卡点前 5 米数据
-- `final_result_3393.5m.txt` - 卡点摘要
-
-### 步骤 5: 验证正确性（可选）
+### 1.1 WSL + Conda 环境
 
 ```bash
-python check_output.py
+# 激活 conda 环境（后续所有命令都需要先执行此步骤）
+conda activate SWPUCompetiton
+
+# 如果没有该环境，创建它
+conda create -n SWPUCompetiton python=3.8 -y
+conda activate SWPUCompetiton
+pip install numpy pandas matplotlib scipy pybind11
 ```
+
+### 1.2 数据文件
+
+项目使用 `data/default/` 目录下的数据：
+- `all_data.csv` - 井眼轨迹数据（37761 个点）
+- `Point_3D.npy` - 3D 井壁点云数据
 
 ---
 
-## 常用命令
+## 2. Python 原始版本
 
-### 编译相关
+适用于需要可视化、调试或快速修改算法的场景。
+
+### 编译/运行
+
 ```bash
-# 清理构建文件
-make clean
+# 直接运行（使用默认参数）
+python python_src/TouYingFa.py
+```
 
-# 重新编译
+### 参数设置
+
+修改 `python_src/TouYingFa.py` 底部的参数：
+
+```python
+instrument_length = 1.0      # 工具长度 (m)
+instrument_Radius = 0.025    # 工具半径 (m)
+begin_deep = 3300            # 起始深度 (m)
+end_deep = 3400              # 截止深度 (m)
+num_step = 0.5               # 步长 (m)
+```
+
+### 输出文件
+
+- `pass_last_5m_{depth}m.txt` - 最后 5 米数据
+- `stuck_point_{depth}m.txt` - 卡点前 5 米数据（如卡住）
+- `final_result_{depth}m.txt` - 卡点摘要（如卡住）
+
+---
+
+## 3. CLI 串行版本
+
+适用于需要快速运行、不需要并行加速的场景。
+
+### 编译
+
+```bash
 make clean && make
-
-# 查看可执行文件信息
-file projection_method
-ls -lh projection_method
 ```
 
-### 运行相关
+### 运行
+
 ```bash
-# 查看帮助（查看参数说明）
-./projection_method --help  # 注：当前版本无 --help，直接运行即可
+# 命令行模式（使用默认数据集）
+./projection_method 1.0 0.025 3300 3400 0.5
+# 参数：<工具长度> <工具半径> <起始深度> <截止深度> <步长>
 
-# 运行并保存日志
-./projection_method 2>&1 | tee output.log
-
-# 后台运行
-nohup ./projection_method > output.log 2>&1 &
+# 交互式模式
+./projection_method
 ```
 
-### 测试相关
+### 验证
+
 ```bash
-# 验证输出
-python check_output.py
-
-# 性能对比
-python benchmark.py
-
-# 对比特定文件
-python compare_cpp_py.py pass_last_5m_3400m.txt PassedExample/pass_last_5m_3400m.txt
+python scripts/check_output.py
 ```
 
 ---
 
-## 示例场景
+## 4. CLI OpenMP 版本
 
-### 场景 1: 测试工具是否能通过
+适用于需要多核并行加速的场景（需要安装 OpenMP 库）。
+
+### macOS 安装 OpenMP
 
 ```bash
-# 编译
-make
+brew install libomp
+```
 
-# 运行：工具长度 1m，半径 0.025m，深度 3300-3400m
+### 编译
+
+```bash
+make clean && make USE_OPENMP=1
+```
+
+### 运行
+
+```bash
+# 指定线程数（可选，默认使用系统所有核心）
+OMP_NUM_THREADS=8 ./projection_method 1.0 0.025 3300 3400 0.5
+```
+
+### 查看热点摘要
+
+程序会自动输出各阶段占比：
+
+```
+C 后端热点摘要:
+  总耗时: 0.75s
+  OpenMP: enabled, 线程数: 12
+  max_inscribed_circle: 0.59s (78.76%)
+  get_closest_points: 0.14s (18.05%)
+  ...
+```
+
+---
+
+## 5. CLI SIMD 版本
+
+适用于需要 SIMD 向量化加速的场景（需要支持 AVX2 的 CPU）。
+
+### 编译
+
+```bash
+make clean && make USE_SIMD=1
+```
+
+### 运行
+
+```bash
+./projection_method 1.0 0.025 3300 3400 0.5
+```
+
+### 说明
+
+- SIMD 版本会自动检测 CPU 是否支持 AVX2
+- 不支持时会自动回退到标量路径
+- Apple Silicon (arm64) 会跳过 AVX2 标志，使用标量 fallback
+
+---
+
+## 6. CLI OpenMP + SIMD 版本（推荐）
+
+适用于需要最佳性能的场景，结合多核并行和 SIMD 向量化。
+
+### 编译
+
+```bash
+make clean && make USE_OPENMP=1 USE_SIMD=1
+```
+
+### 运行
+
+```bash
+# 使用全部 CPU 核心
 ./projection_method 1.0 0.025 3300 3400 0.5
 
-# 查看结果
-cat pass_last_5m_3400m.txt
+# 或指定线程数
+OMP_NUM_THREADS=8 ./projection_method 1.0 0.025 3300 3400 0.5
 ```
 
-### 场景 2: 找到卡点位置
+### 性能
+
+| 配置 | 平均耗时 |
+|------|----------:|
+| 串行 | 1.317s |
+| SIMD | 0.750s |
+| OpenMP + SIMD | 0.620-0.75s |
+
+---
+
+## 7. Python 绑定版本
+
+适用于在 Python 代码中调用高性能 C/C++ 计算核心的场景。
+
+### 安装
 
 ```bash
-# 使用较大的工具半径
-./projection_method 1.0 0.05 3300 3400 0.5
-
-# 查看卡点信息
-cat final_result_*.txt
-cat stuck_point_*.txt
+cd cpp_src/python_bindings
+pip install -e .
+cd ../..
 ```
 
-### 场景 3: 性能测试
+### 运行示例
+
+```python
+import numpy as np
+import pandas as pd
+from projection_cpp import Projection2_cpp, Projection2_c
+
+# 加载数据
+all_data = pd.read_csv('data/default/all_data.csv')
+Point_3D = np.load('data/default/Point_3D.npy')
+
+# 调用 C++ 版本
+deep, R, rr, dd, p_all, t_all, draw_R = Projection2_cpp(
+    all_data, Point_3D, 1.0, 0.025, 3300, 3400, 0.5
+)
+
+print(f"卡点深度: {deep:.3f} m")
+print(f"最小半径: {R:.6f} m")
+print(f"计算时间: {t_all:.3f} s")
+```
+
+### 两个后端区别
+
+- `Projection2_cpp()`: C++ 适配路径
+- `Projection2_c()`: 纯 C 计算核心路径
+
+两者结果一致，性能相近。
+
+### OpenMP Python 绑定
 
 ```bash
-# 编译优化版本
-g++ -std=c++17 -O3 -march=native -o projection_method main.cpp projection_method.cpp file_io_improved.cpp
-
-# 计时运行
-time ./projection_method 1.0 0.025 3300 3400 0.5
-
-# 与 Python 版本对比
-python benchmark.py
+# 重新安装 OpenMP 版本
+cd cpp_src/python_bindings
+PROJECTION_USE_OPENMP=1 pip install -e . --force-reinstall --no-deps
+cd ../..
 ```
 
 ---
 
-## 故障排除
+## 8. 验证输出正确性
 
-### 问题 1: 编译失败
+### 方式 1：使用验证脚本
 
 ```bash
-# 检查编译器版本
+python scripts/check_output.py
+```
+
+### 方式 2：手动对比
+
+```bash
+# 对比特定输出文件
+python scripts/compare_cpp_py.py output/pass_last_5m_3400m.txt data/PassedExample/pass_last_5m_3400m.txt
+```
+
+---
+
+## 9. 快速选择指南
+
+| 需求 | 推荐版本 |
+|------|----------|
+| 第一次尝试 | CLI 串行版本 (`make`) |
+| 最优性能 | CLI OpenMP+SIMD (`make USE_OPENMP=1 USE_SIMD=1`) |
+| Python 中使用 | Python 绑定 (`pip install -e .`) |
+| 调试/可视化 | Python 原始版本 (`python python_src/TouYingFa.py`) |
+| 只用单核 | CLI 串行版本 (`make`) |
+
+---
+
+## 10. 常见问题
+
+### Q: 编译失败
+
+```bash
+# 检查编译器
 g++ --version
 
-# 如果版本太低，尝试使用 clang++
-clang++ -std=c++17 -O3 -o projection_method main.cpp projection_method.cpp file_io_improved.cpp
+# 清理后重新编译
+make clean && make
 ```
 
-### 问题 2: 找不到输入文件
+### Q: 运行结果不一致
 
 ```bash
-# 检查文件是否存在
-ls -lh all_data.csv Point_3D.npy
-
-# 确保在正确的目录
-pwd
+# 验证正确性
+python scripts/check_output.py
 ```
 
-### 问题 3: 输出结果不一致
+### Q: OpenMP 不可用
 
-```bash
-# 详细对比
-python compare_cpp_py.py pass_last_5m_3400m.txt PassedExample/pass_last_5m_3400m.txt
+- macOS: `brew install libomp`
+- Linux: 大多数发行版已自带
 
-# 检查输入数据是否正确
-head -5 all_data.csv
-```
+### Q: SIMD 不可用
 
-### 问题 4: 程序运行很慢
-
-```bash
-# 确保使用了优化编译
-make clean
-CXXFLAGS="-O3 -march=native" make
-
-# 或使用 CMake Release 模式
-mkdir build && cd build
-cmake -DCMAKE_BUILD_TYPE=Release ..
-make
-```
+- SIMD 需要 AVX2 支持的 CPU
+- 不支持时会自动回退到标量
+- Apple Silicon 使用标量路径
 
 ---
 
-## 下一步
+## 11. 相关文档
 
-- 📖 阅读 [README_CPP.md](README_CPP.md) 了解更多细节
-- 🔧 查看 [COMPILE_GUIDE.md](COMPILE_GUIDE.md) 学习高级编译选项
-- 📊 运行 `python benchmark.py` 查看性能提升
-- 🎯 修改参数进行不同场景的测试
-
----
-
-## 获取帮助
-
-如果遇到问题：
-
-1. 查看 [COMPILE_GUIDE.md](COMPILE_GUIDE.md) 中的常见错误
-2. 检查 [CPP_REFACTOR_COMPLETE.md](CPP_REFACTOR_COMPLETE.md) 中的 FAQ
-3. 确保所有文件都在同一目录
-4. 尝试使用不同的编译器或构建方式
-
----
-
-**祝使用愉快！** 🚀
+- 性能分析报告：`docs/AnalysisReport.md`
+- 算法工作流程：`docs/WorkFlow.md`
+- 完整 README：`docs/README.md`
+- Python 绑定指南：`docs/PYTHON_BINDING.md`

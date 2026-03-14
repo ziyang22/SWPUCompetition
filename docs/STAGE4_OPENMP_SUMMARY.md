@@ -295,3 +295,9 @@ brew install libomp
 4. 评估 SIMD / 算法层面的进一步优化
 
 但这些都属于下一阶段工作，不包含在本次简单 OpenMP 优化范围内。
+
+---
+
+## 最新性能报告
+
+完整的性能分析、最新 benchmark 数据和各阶段占比，请查看 [AnalysisReport.md](AnalysisReport.md)。

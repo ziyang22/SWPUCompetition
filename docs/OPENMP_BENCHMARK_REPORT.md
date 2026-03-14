@@ -300,3 +300,9 @@ CLI 摘要输出显示：
 - `cpp_src/python_bindings/setup.py`
 - `scripts/test_cpp_binding.py`
 - `docs/STAGE4_OPENMP_SUMMARY.md`
+
+---
+
+## 最新性能报告
+
+完整的性能分析、最新 benchmark 数据和各阶段占比，请查看 [AnalysisReport.md](AnalysisReport.md)。
