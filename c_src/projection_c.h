@@ -92,6 +92,11 @@ typedef struct {
     double num_step;
     double begin_deep;
     double end_deep;
+    // 自适应搜索参数
+    int enable_adaptive;     // 1: 启用自适应搜索, 0: 固定步长遍历
+    double growth_factor;    // 步长增长系数 (默认 2.0)
+    double min_step;         // 最小步长 (默认 0.5m)
+    double max_step;         // 最大步长 (默认 10m)
 } projection_c_config;
 
 typedef struct {

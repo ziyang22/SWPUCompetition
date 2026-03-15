@@ -117,7 +117,11 @@ public:
         double end_deep,
         std::vector<CalculationResult>& results,
         double& stuck_depth,
-        double& min_radius
+        double& min_radius,
+        int enable_adaptive = 0,
+        double growth_factor = 2.0,
+        double min_step = 0.5,
+        double max_step = 10.0
     );
 
 private:

@@ -139,6 +139,10 @@ int main(int argc, char* argv[]) {
         double begin_deep = 3300.0;          // 起始深度 (m)
         double end_deep = 3400.0;            // 截止深度 (m)
         double num_step = 0.5;               // 步长 (m)
+     int enable_adaptive = 0;           // 自适应搜索开关
+        double growth_factor = 2.0;          // 步长增长系数
+        double min_step = 0.5;               // 最小步长
+      double max_step = 10.0;           // 最大步长
 
         // Parse command line arguments if provided
         if (argc >= 6) {
@@ -147,6 +151,12 @@ int main(int argc, char* argv[]) {
             begin_deep = std::stod(argv[3]);
             end_deep = std::stod(argv[4]);
             num_step = std::stod(argv[5]);
+
+            // 可选参数：自适应搜索
+          if (argc >= 7) enable_adaptive = std::stoi(argv[6]);
+       if (argc >= 8) growth_factor = std::stod(argv[7]);
+            if (argc >= 9) min_step = std::stod(argv[8]);
+            if (argc >= 10) max_step = std::stod(argv[9]);
         } else {
             // Interactive mode: get parameters
             getParameters(instrument_length, instrument_radius, begin_deep, end_deep, num_step);
@@ -159,6 +169,12 @@ int main(int argc, char* argv[]) {
         std::cout << "  起始深度: " << begin_deep << " m" << std::endl;
         std::cout << "  截止深度: " << end_deep << " m" << std::endl;
         std::cout << "  步长: " << num_step << " m" << std::endl;
+        if (enable_adaptive) {
+            std::cout << "  自适应搜索: 启用" << std::endl;
+            std::cout << "    增长系数: " << growth_factor << std::endl;
+        std::cout << "    最小步长: " << min_step << " m" << std::endl;
+            std::cout << "    最大步长: " << max_step << " m" << std::endl;
+        }
         std::cout << std::endl;
 
         // Create calculator
@@ -183,7 +199,11 @@ int main(int argc, char* argv[]) {
             end_deep,
             results,
             stuck_depth,
-            min_radius
+            min_radius,
+            enable_adaptive,
+          growth_factor,
+          min_step,
+      max_step
         );
 
         std::cout << std::string(60, '=') << std::endl;

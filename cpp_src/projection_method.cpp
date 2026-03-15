@@ -306,7 +306,11 @@ bool ProjectionCalculator::calculate(
     double end_deep,
     std::vector<CalculationResult>& results,
     double& stuck_depth,
-    double& min_radius
+    double& min_radius,
+    int enable_adaptive,
+    double growth_factor,
+    double min_step,
+    double max_step
 ) {
     projection_c_input_view input_view{};
     projection_c_config config{};
@@ -327,6 +331,10 @@ bool ProjectionCalculator::calculate(
     config.num_step = num_step_;
     config.begin_deep = begin_deep;
     config.end_deep = end_deep;
+    config.enable_adaptive = enable_adaptive;
+    config.growth_factor = growth_factor;
+    config.min_step = min_step;
+    config.max_step = max_step;
 
     int status = projection_c_calculate(&input_view, &config, &output);
     if (status != PROJECTION_C_OK) {
