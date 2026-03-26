@@ -15,6 +15,8 @@
 
 #define PROJECTION_C_EPS 1e-10
 
+static int g_projection_c_enable_inner_parallel = 1;
+
 static double clamp_non_negative(double value) {
     if (value < 0.0 && value > -PROJECTION_C_EPS) {
         return 0.0;
@@ -529,7 +531,7 @@ static projection_c_circle max_inscribed_circle(const point2d_buffer* points, in
     y_step = (ymax - ymin) / grid_num;
 
 #ifdef _OPENMP
-#pragma omp parallel
+#pragma omp parallel if(g_projection_c_enable_inner_parallel)
     {
         double thread_best_radius = 0.0;
         double thread_best_radius_sq = -1.0;
@@ -638,6 +640,233 @@ static double now_seconds(void) {
 #endif
 }
 
+typedef struct {
+    point3d_buffer* directions;
+    point3d_buffer* projected;
+    point2d_buffer* projected_2d;
+    point2d_buffer* closest_2d;
+} projection_c_workspace;
+
+typedef struct {
+    int ok;
+    int failed;
+    projection_c_circle circle;
+    projection_c_result_row row;
+    double window_time;
+} projection_c_window_eval;
+
+static void init_workspace(projection_c_workspace* workspace,
+                           point3d_buffer* directions,
+                           point3d_buffer* projected,
+                           point2d_buffer* projected_2d,
+                           point2d_buffer* closest_2d) {
+    directions->data = NULL;
+    directions->size = 0;
+    directions->capacity = 0;
+    projected->data = NULL;
+    projected->size = 0;
+    projected->capacity = 0;
+    projected_2d->data = NULL;
+    projected_2d->size = 0;
+    projected_2d->capacity = 0;
+    closest_2d->data = NULL;
+    closest_2d->size = 0;
+    closest_2d->capacity = 0;
+
+    workspace->directions = directions;
+    workspace->projected = projected;
+    workspace->projected_2d = projected_2d;
+    workspace->closest_2d = closest_2d;
+}
+
+static void free_workspace(projection_c_workspace* workspace) {
+    free(workspace->directions->data);
+    free(workspace->projected->data);
+    free(workspace->projected_2d->data);
+    free(workspace->closest_2d->data);
+    workspace->directions->data = NULL;
+    workspace->projected->data = NULL;
+    workspace->projected_2d->data = NULL;
+    workspace->closest_2d->data = NULL;
+}
+
+static int normalize_parallelism_value(int value) {
+    return value > 0 ? value : 1;
+}
+
+static int evaluate_local_window(
+    const projection_c_input_view* input,
+    const projection_c_config* config,
+    int begin,
+    int step,
+    int j,
+    projection_c_workspace* workspace,
+    projection_c_circle* min_circle,
+    projection_c_result_row* row,
+    double* window_time
+) {
+    projection_c_point3d Pi;
+    projection_c_point3d Pj;
+    projection_c_point3d diff;
+    projection_c_point3d n;
+    projection_c_point3d plane_normal;
+    double d;
+    double delta = 0.030 / config->instrument_length;
+    double angle_step = delta / 8.0;
+    double angle = 0.0;
+    double A;
+    double B;
+    double C;
+    double D;
+    double max_r = 0.0;
+    double start_time = now_seconds();
+    size_t m;
+
+    if (j <= begin || j >= (int)input->depth_count) {
+        return 0;
+    }
+
+    if (j - 2 * step < 0) {
+        Pi.x = input->trajectory[begin].position_x;
+        Pi.y = input->trajectory[begin].position_y;
+        Pi.z = input->trajectory[begin].position_z;
+    } else {
+        Pi.x = input->trajectory[j - 2 * step].position_x;
+        Pi.y = input->trajectory[j - 2 * step].position_y;
+        Pi.z = input->trajectory[j - 2 * step].position_z;
+    }
+    Pj.x = input->trajectory[j].position_x;
+    Pj.y = input->trajectory[j].position_y;
+    Pj.z = input->trajectory[j].position_z;
+
+    diff = point3d_sub(Pj, Pi);
+    d = point3d_norm(diff);
+    if (d <= PROJECTION_C_EPS) {
+        return 0;
+    }
+    n = point3d_scale(diff, 1.0 / d);
+
+    workspace->directions->size = 0;
+    while (angle < delta) {
+        point3d_buffer local_directions = {NULL, 0, 0};
+        size_t idx;
+        projection_direction(n.x, n.y, n.z, angle, &local_directions);
+        for (idx = 0; idx < local_directions.size; ++idx) {
+            if (!point3d_buffer_push(workspace->directions, local_directions.data[idx])) {
+                free(local_directions.data);
+                return 0;
+            }
+        }
+        free(local_directions.data);
+        angle += angle_step;
+    }
+
+    plane_normal.x = input->trajectory[j - 1].position_x - input->trajectory[j].position_x;
+    plane_normal.y = input->trajectory[j - 1].position_y - input->trajectory[j].position_y;
+    plane_normal.z = input->trajectory[j - 1].position_z - input->trajectory[j].position_z;
+    plane_normal = point3d_normalized(plane_normal);
+    A = plane_normal.x;
+    B = plane_normal.y;
+    C = plane_normal.z;
+    D = -(A * input->trajectory[j].position_x + B * input->trajectory[j].position_y + C * input->trajectory[j].position_z);
+
+    min_circle->center_x = 0.0;
+    min_circle->center_y = 0.0;
+    min_circle->radius = 0.0;
+
+    for (m = 0; m < workspace->directions->size; ++m) {
+        int start_idx = j - step;
+        projection_c_point3d mean_proj = {0.0, 0.0, 0.0};
+        projection_c_circle current_circle;
+        size_t p;
+
+        if (start_idx < 0) {
+            start_idx = 0;
+        }
+
+        if (!line_plane_multiple(
+                input,
+                start_idx,
+                j,
+                workspace->directions->data[m].x,
+                workspace->directions->data[m].y,
+                workspace->directions->data[m].z,
+                A,
+                B,
+                C,
+                D,
+                workspace->projected)) {
+            return 0;
+        }
+
+        if (workspace->projected->size == 0) {
+            continue;
+        }
+
+        for (p = 0; p < workspace->projected->size; ++p) {
+            mean_proj = point3d_add(mean_proj, workspace->projected->data[p]);
+        }
+        mean_proj = point3d_scale(mean_proj, 1.0 / (double)workspace->projected->size);
+
+        if (!point3d_to_2d(A, B, C, workspace->projected, mean_proj, workspace->projected->data[3], workspace->projected_2d)) {
+            return 0;
+        }
+
+        if (!get_closest_points(workspace->projected_2d, workspace->closest_2d)) {
+            return 0;
+        }
+
+        current_circle = max_inscribed_circle(workspace->closest_2d, 30);
+        if (current_circle.radius > max_r) {
+            max_r = current_circle.radius;
+            *min_circle = current_circle;
+        }
+    }
+
+    *window_time = now_seconds() - start_time;
+    row->depth = input->trajectory[j].depth;
+    row->tool_length = config->instrument_length;
+    row->center_x = min_circle->center_x;
+    row->center_y = min_circle->center_y;
+    row->diameter = min_circle->radius * 2.0;
+    row->current_time = *window_time;
+    row->total_time = 0.0;
+    return 1;
+}
+
+static int compute_window_eval(
+    const projection_c_input_view* input,
+    const projection_c_config* config,
+    int begin,
+    int step,
+    int j,
+    projection_c_window_eval* eval
+) {
+    point3d_buffer directions;
+    point3d_buffer projected;
+    point2d_buffer projected_2d;
+    point2d_buffer closest_2d;
+    projection_c_workspace workspace;
+    int ok;
+
+    init_workspace(&workspace, &directions, &projected, &projected_2d, &closest_2d);
+
+    ok = evaluate_local_window(input, config, begin, step, j, &workspace,
+                               &eval->circle, &eval->row, &eval->window_time);
+
+    free_workspace(&workspace);
+
+    if (!ok) {
+        eval->ok = 0;
+        eval->failed = 0;
+        return 0;
+    }
+
+    eval->ok = 1;
+    eval->failed = config->instrument_radius > eval->circle.radius;
+    return 1;
+}
+
 int projection_c_calculate(
     const projection_c_input_view* input,
     const projection_c_config* config,
@@ -654,6 +883,7 @@ int projection_c_calculate(
     point3d_buffer projected = {NULL, 0, 0};
     point2d_buffer projected_2d = {NULL, 0, 0};
     point2d_buffer closest_2d = {NULL, 0, 0};
+    projection_c_workspace workspace = {&directions, &projected, &projected_2d, &closest_2d};
 
     if (output == NULL) {
         return PROJECTION_C_ERROR_INVALID_ARGUMENT;
@@ -661,8 +891,23 @@ int projection_c_calculate(
 
     memset(output, 0, sizeof(*output));
 #ifdef _OPENMP
-    output->profile.openmp_enabled = 1;
-    output->profile.openmp_thread_count = omp_get_max_threads();
+    {
+        int configured_threads = 1;
+        omp_set_dynamic(0);
+        omp_set_nested(0);
+        if (config->enable_outer_parallel) {
+            configured_threads = normalize_parallelism_value(config->outer_tasks);
+            g_projection_c_enable_inner_parallel = 0;
+        } else if (config->enable_inner_parallel) {
+            configured_threads = normalize_parallelism_value(config->inner_threads);
+            g_projection_c_enable_inner_parallel = 1;
+        } else {
+            g_projection_c_enable_inner_parallel = 0;
+        }
+        omp_set_num_threads(configured_threads);
+        output->profile.openmp_enabled = 1;
+        output->profile.openmp_thread_count = configured_threads;
+    }
 #else
     output->profile.openmp_enabled = 0;
     output->profile.openmp_thread_count = 1;
@@ -699,212 +944,151 @@ int projection_c_calculate(
 
     // ===== 自适应搜索模式 =====
     if (config->enable_adaptive) {
-        // 初始化 begin 和 end
         begin = find_depth_index(input, config->begin_deep);
         end = find_depth_index(input, config->end_deep) + 1;
         if (end > (int)input->depth_count) {
             end = (int)input->depth_count;
         }
 
-        double growth_factor = config->growth_factor > 0 ? config->growth_factor : 2.0;
-        double min_step = config->min_step > 0 ? config->min_step : config->num_step;
-        double max_step = config->max_step > 0 ? config->max_step : 10.0;
-      double current_step = config->num_step;
-        int last_passed_idx = begin;
-        int search_idx = begin;
-      double total_start_time = now_seconds();
-        int adaptive_iterations = 0;
-        int backtrack_mode = 0;
+        {
+            double growth_factor = config->growth_factor > 0 ? config->growth_factor : 2.0;
+            double min_step = config->min_step > 0 ? config->min_step : config->num_step;
+            double max_step = config->max_step > 0 ? config->max_step : 10.0;
+            double near_failure_margin = 0.0025;
+            double current_step = config->num_step;
+            int search_idx = begin;
+            double total_start_time = now_seconds();
+            int adaptive_iterations = 0;
+            int backtrack_mode = 0;
 
-        printf("  [自适应搜索] 初始步长=%.2fm, 增长系数=%.1f, 最大步长=%.1fm\n",
-               current_step, growth_factor, max_step);
+            printf("  [自适应搜索] 初始步长=%.2fm, 增长系数=%.1f, 最大步长=%.1fm\n",
+                   current_step, growth_factor, max_step);
 
-     while (search_idx < end - 1) {
-            int step_idx = (int)(current_step * 1000.0 / (depth_spacing * 1000.0));
-          if (step_idx < 1) step_idx = 1;
+            while (search_idx < end - 1) {
+                int step_idx = (int)(current_step * 1000.0 / (depth_spacing * 1000.0));
+                int interval_end;
+                int candidate_j;
+                int suspicious_j = -1;
+                int earliest_failure_j = -1;
+                projection_c_circle suspicious_circle = {0.0, 0.0, 0.0};
+                projection_c_circle failure_circle = {0.0, 0.0, 0.0};
+                double interval_start_time = now_seconds();
 
-            int j = search_idx + step_idx;
-      if (j >= end) j = end - 1;
+                if (step_idx < 1) {
+                    step_idx = 1;
+                }
 
-       int i_start = search_idx - step_idx;
-            if (i_start < begin) i_start = begin;
+                interval_end = search_idx + step_idx;
+                if (interval_end >= end) {
+                    interval_end = end - 1;
+                }
 
-      projection_c_point3d Pi, Pj, diff, n;
-       double d;
-            double delta = 0.030 / config->instrument_length;
-            double angle_step = delta / 8.0;
-         double angle = 0.0;
-            projection_c_point3d plane_normal;
-            double A, B, C, D;
-            projection_c_circle min_circle = {0.0, 0.0, 0.0};
-            double max_r = 0.0;
-            double start_time = now_seconds();
-            size_t m;
+                for (candidate_j = search_idx + step; candidate_j <= interval_end; candidate_j += step) {
+                    projection_c_circle current_circle;
+                    projection_c_result_row current_row;
+                    double window_time;
+                    int is_near_failure;
+                    int is_failure;
 
-            if (j >= (int)input->depth_count) {
-                j = (int)input->depth_count - 1;
-            }
+                    if (!evaluate_local_window(input, config, begin, step, candidate_j, &workspace,
+                                               &current_circle, &current_row, &window_time)) {
+                        set_error(output, PROJECTION_C_ERROR_ALLOCATION_FAILED, "allocation failed");
+                        goto cleanup;
+                    }
 
-            if (i_start - step < 0) {
-           Pi.x = input->trajectory[begin].position_x;
-                Pi.y = input->trajectory[begin].position_y;
-                Pi.z = input->trajectory[begin].position_z;
-            } else {
-           Pi.x = input->trajectory[i_start - step].position_x;
-                Pi.y = input->trajectory[i_start - step].position_y;
-                Pi.z = input->trajectory[i_start - step].position_z;
-            }
-          Pj.x = input->trajectory[j].position_x;
-            Pj.y = input->trajectory[j].position_y;
-            Pj.z = input->trajectory[j].position_z;
+                    current_row.total_time = now_seconds() - total_start_time;
+                    if (!append_result(output, current_row)) {
+                        set_error(output, PROJECTION_C_ERROR_ALLOCATION_FAILED, "allocation failed");
+                        goto cleanup;
+                    }
 
-            diff = point3d_sub(Pj, Pi);
-            d = point3d_norm(diff);
-          if (d <= PROJECTION_C_EPS) {
-                set_error(output, PROJECTION_C_ERROR_INVALID_ARGUMENT, "trajectory points too close");
-                goto cleanup;
-            }
-            n = point3d_scale(diff, 1.0 / d);
+                    output->profile.window_count += 1;
+                    output->profile.window_time_total += window_time;
+                    if (window_time > output->profile.window_time_max) {
+                        output->profile.window_time_max = window_time;
+                    }
 
-            directions.size = 0;
-            while (angle < delta) {
-                point3d_buffer local_directions = {NULL, 0, 0};
-          size_t idx;
-                projection_direction(n.x, n.y, n.z, angle, &local_directions);
-           for (idx = 0; idx < local_directions.size; ++idx) {
-               if (!point3d_buffer_push(&directions, local_directions.data[idx])) {
-                   free(local_directions.data);
-              set_error(output, PROJECTION_C_ERROR_ALLOCATION_FAILED, "allocation failed");
-                   goto cleanup;
+                    is_failure = config->instrument_radius > current_circle.radius;
+                    is_near_failure = (config->instrument_radius + near_failure_margin) > current_circle.radius;
+                    if ((is_failure || is_near_failure) && suspicious_j < 0) {
+                        suspicious_j = candidate_j;
+                        suspicious_circle = current_circle;
+                    }
+                    if (is_failure) {
+                        earliest_failure_j = candidate_j;
+                        failure_circle = current_circle;
+                        break;
                     }
                 }
-                free(local_directions.data);
-        angle += angle_step;
-            }
 
-            plane_normal.x = input->trajectory[j - 1].position_x - input->trajectory[j].position_x;
-            plane_normal.y = input->trajectory[j - 1].position_y - input->trajectory[j].position_y;
-            plane_normal.z = input->trajectory[j - 1].position_z - input->trajectory[j].position_z;
-            plane_normal = point3d_normalized(plane_normal);
-            A = plane_normal.x;
-            B = plane_normal.y;
-            C = plane_normal.z;
-            D = -(A * input->trajectory[j].position_x + B * input->trajectory[j].position_y + C * input->trajectory[j].position_z);
+                printf("  [自适应] 第%d次: 深度 %.1f->%.1f (步长%.2fm), 区间最小直径%s%.3f, 耗时%.2fs\n",
+                       ++adaptive_iterations,
+                       input->trajectory[search_idx].depth,
+                       input->trajectory[interval_end].depth,
+                       current_step,
+                       suspicious_j >= 0 ? "约" : "",
+                       suspicious_j >= 0 ? suspicious_circle.radius * 2.0 : 0.0,
+                       now_seconds() - interval_start_time);
 
-            for (m = 0; m < directions.size; ++m) {
-              int start_idx = j - step;
-                projection_c_point3d mean_proj = {0.0, 0.0, 0.0};
-                projection_c_circle current_circle;
-              size_t p;
+                if (suspicious_j >= 0) {
+                    if (!backtrack_mode && current_step > min_step * 1.5) {
+                        int rewind_idx = suspicious_j - step;
+                        if (rewind_idx < begin) {
+                            rewind_idx = begin;
+                        }
+                        printf("  [自适应] 区间内发现可疑窗口，回溯到 %.1fm 用小步长细搜\n",
+                               input->trajectory[rewind_idx].depth);
+                        backtrack_mode = 1;
+                        search_idx = rewind_idx;
+                        current_step = min_step;
+                        continue;
+                    }
 
-             if (start_idx < 0) start_idx = 0;
-
-                if (!line_plane_multiple(input, start_idx, j,
-             directions.data[m].x, directions.data[m].y, directions.data[m].z,
-                     A, B, C, D, &projected)) {
-                  set_error(output, PROJECTION_C_ERROR_ALLOCATION_FAILED, "allocation failed");
-                 goto cleanup;
-              }
-
-                if (projected.size == 0) continue;
-
-              for (p = 0; p < projected.size; ++p) {
-                    mean_proj = point3d_add(mean_proj, projected.data[p]);
-                }
-             mean_proj = point3d_scale(mean_proj, 1.0 / (double)projected.size);
-
-                if (!point3d_to_2d(A, B, C, &projected, mean_proj, projected.data[3], &projected_2d)) {
-                    set_error(output, PROJECTION_C_ERROR_ALLOCATION_FAILED, "allocation failed");
-        goto cleanup;
-       }
-
-                if (!get_closest_points(&projected_2d, &closest_2d)) {
-                  set_error(output, PROJECTION_C_ERROR_ALLOCATION_FAILED, "allocation failed");
-              goto cleanup;
+                    if (earliest_failure_j >= 0) {
+                        output->passed = 0;
+                        output->stuck_depth = input->trajectory[earliest_failure_j].depth;
+                        output->min_radius = failure_circle.radius;
+                        output->error_code = PROJECTION_C_OK;
+                        output->error_message[0] = '\0';
+                        printf("  [自适应搜索] 工具卡住在深度 %.1fm, 最大可通过直径 %.3fmm\n",
+                               output->stuck_depth, failure_circle.radius * 2.0 * 1000.0);
+                        goto cleanup;
+                    }
                 }
 
-                current_circle = max_inscribed_circle(&closest_2d, 30);
-                if (current_circle.radius > max_r) {
-               max_r = current_circle.radius;
-                    min_circle = current_circle;
+                search_idx = interval_end;
+
+                if (!backtrack_mode) {
+                    current_step = current_step * growth_factor;
+                    if (current_step > max_step) {
+                        current_step = max_step;
+                    }
                 }
             }
 
-      double window_time = now_seconds() - start_time;
-            output->profile.window_count += 1;
-       output->profile.window_time_total += window_time;
-
-            projection_c_result_row row;
-            row.depth = input->trajectory[j].depth;
-            row.tool_length = config->instrument_length;
-            row.center_x = min_circle.center_x;
-          row.center_y = min_circle.center_y;
-          row.diameter = min_circle.radius * 2.0;
-          row.current_time = window_time;
-         row.total_time = now_seconds() - total_start_time;
-
-            if (!append_result(output, row)) {
-           set_error(output, PROJECTION_C_ERROR_ALLOCATION_FAILED, "allocation failed");
-                goto cleanup;
-        }
-
-            printf("  [自适应] 第%d次: 深度 %.1f->%.1f (步长%.2fm), 直径%.3f, 耗时%.2fs\n",
-                   ++adaptive_iterations,
-          input->trajectory[search_idx].depth,
-                   input->trajectory[j].depth,
-                 current_step,
-                   min_circle.radius * 2.0,
-       window_time);
-
-     if (config->instrument_radius > min_circle.radius) {
-                if (!backtrack_mode && current_step > min_step * 1.5) {
-                  printf("  [自适应] 检测到卡点，回溯到 %.1fm 用小步长细搜\n",
-                  input->trajectory[last_passed_idx].depth);
-                    backtrack_mode = 1;
-                    search_idx = last_passed_idx;
-                current_step = min_step;
-                  continue;
-                } else {
-                    output->passed = 0;
-                    output->stuck_depth = input->trajectory[j].depth;
-               output->min_radius = min_circle.radius;
-                 output->error_code = PROJECTION_C_OK;
-                    printf("  [自适应搜索] 工具卡住在深度 %.1fm, 最大可通过直径 %.3fm\n",
-                       output->stuck_depth, min_circle.radius * 2.0);
-                    goto cleanup;
+            if (output->result_count > 0) {
+                size_t idx;
+                double min_r = 1e300;
+                double min_r_depth = 0.0;
+                for (idx = 0; idx < output->result_count; ++idx) {
+                    double r = output->results[idx].diameter / 2.0;
+                    if (r < min_r) {
+                        min_r = r;
+                        min_r_depth = output->results[idx].depth;
+                    }
                 }
+                output->passed = 1;
+                output->stuck_depth = min_r_depth;
+                output->min_radius = min_r;
             }
+            output->error_code = PROJECTION_C_OK;
+            output->error_message[0] = '\0';
 
-            last_passed_idx = j;
-            search_idx = j;
+            printf("  [自适应搜索] 完成: 计算了 %d 个窗口, 总耗时 %.2fs\n",
+                   adaptive_iterations, now_seconds() - total_start_time);
 
-         if (!backtrack_mode) {
-                current_step = current_step * growth_factor;
-                if (current_step > max_step) current_step = max_step;
-            }
+            goto cleanup;
         }
-
-        if (output->result_count > 0) {
-            size_t idx;
-      double min_r = 1e300;
-            double min_r_depth = 0.0;
-        for (idx = 0; idx < output->result_count; ++idx) {
-            double r = output->results[idx].diameter / 2.0;
-         if (r < min_r) {
-                 min_r = r;
-               min_r_depth = output->results[idx].depth;
-                }
-        }
-            output->passed = 1;
-         output->stuck_depth = min_r_depth;
-            output->min_radius = min_r;
-        }
-        output->error_code = PROJECTION_C_OK;
-
-        printf("  [自适应搜索] 完成: 计算了 %d 个窗口, 总耗时 %.2fs\n",
-            adaptive_iterations, now_seconds() - total_start_time);
-
-        goto cleanup;
     }
 
     // ===== 传统固定步长模式 =====
@@ -913,6 +1097,123 @@ int projection_c_calculate(
     end = find_depth_index(input, config->end_deep) + 1;
     if (end > (int)input->depth_count) {
         end = (int)input->depth_count;
+    }
+
+    if (config->enable_outer_parallel) {
+        int window_count = 0;
+        int window_index = 0;
+        int j_value;
+        int first_failure_index = -1;
+        int evaluation_failed = 0;
+        int* j_values = NULL;
+        projection_c_window_eval* evals = NULL;
+
+        for (j_value = begin + h_step; j_value < end; j_value += h_step) {
+            window_count += 1;
+        }
+
+        if (window_count > 0) {
+            j_values = (int*)malloc((size_t)window_count * sizeof(int));
+            evals = (projection_c_window_eval*)calloc((size_t)window_count, sizeof(projection_c_window_eval));
+            if (j_values == NULL || evals == NULL) {
+                free(j_values);
+                free(evals);
+                set_error(output, PROJECTION_C_ERROR_ALLOCATION_FAILED, "allocation failed");
+                goto cleanup;
+            }
+
+            for (j_value = begin + h_step; j_value < end; j_value += h_step) {
+                j_values[window_index++] = j_value;
+            }
+
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static)
+#endif
+            for (window_index = 0; window_index < window_count; ++window_index) {
+                if (!compute_window_eval(input, config, begin, step, j_values[window_index], &evals[window_index])) {
+                    evals[window_index].ok = 0;
+                }
+            }
+
+            for (window_index = 0; window_index < window_count; ++window_index) {
+                projection_c_result_row row;
+                if (!evals[window_index].ok) {
+                    evaluation_failed = 1;
+                    break;
+                }
+
+                row = evals[window_index].row;
+                t_all += evals[window_index].window_time;
+                row.total_time = t_all;
+                row.current_time = evals[window_index].window_time;
+
+                output->profile.window_count += 1;
+                output->profile.window_time_total += evals[window_index].window_time;
+                if (evals[window_index].window_time > output->profile.window_time_max) {
+                    output->profile.window_time_max = evals[window_index].window_time;
+                }
+
+                printf("深度:%.3f/%.3f, 工具长度: %.2fm\n 圆心:(%.3f,%.3f),直径：%.3f\n 当前段计算时间:%.2fs, 当前总耗时:%.2fs\n\n",
+                       row.depth,
+                       input->trajectory[end - 1].depth,
+                       config->instrument_length,
+                       evals[window_index].circle.center_x,
+                       evals[window_index].circle.center_y,
+                       evals[window_index].circle.radius * 2.0,
+                       row.current_time,
+                       t_all);
+
+                if (!append_result(output, row)) {
+                    evaluation_failed = 1;
+                    break;
+                }
+
+                if (evals[window_index].failed) {
+                    first_failure_index = window_index;
+                    break;
+                }
+            }
+
+            free(j_values);
+            free(evals);
+
+            if (evaluation_failed) {
+                set_error(output, PROJECTION_C_ERROR_ALLOCATION_FAILED, "allocation failed");
+                goto cleanup;
+            }
+
+            if (first_failure_index >= 0) {
+                output->passed = 0;
+                output->stuck_depth = output->results[first_failure_index].depth;
+                output->min_radius = output->results[first_failure_index].diameter / 2.0;
+                output->error_code = PROJECTION_C_OK;
+                output->error_message[0] = '\0';
+                goto cleanup;
+            }
+        }
+
+        if (output->result_count > 0) {
+            size_t idx;
+            double min_r = 1e300;
+            double min_r_depth = 0.0;
+            for (idx = 0; idx < output->result_count; ++idx) {
+                double r = output->results[idx].diameter / 2.0;
+                if (r < min_r) {
+                    min_r = r;
+                    min_r_depth = output->results[idx].depth;
+                }
+            }
+            output->passed = 1;
+            output->stuck_depth = min_r_depth;
+            output->min_radius = min_r;
+        } else {
+            output->passed = 1;
+            output->stuck_depth = 0.0;
+            output->min_radius = 0.0;
+        }
+        output->error_code = PROJECTION_C_OK;
+        output->error_message[0] = '\0';
+        goto cleanup;
     }
 
     i = begin;

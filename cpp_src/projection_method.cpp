@@ -11,6 +11,18 @@
 
 namespace projection {
 
+namespace {
+std::string formatDepthForFileName(double depth) {
+    std::ostringstream stream;
+    stream << std::fixed << std::setprecision(3) << depth;
+    std::string formatted = stream.str();
+    while (formatted.size() >= 2 && formatted.back() == '0' && formatted[formatted.size() - 2] != '.') {
+        formatted.pop_back();
+    }
+    return formatted;
+}
+} // namespace
+
 ProjectionCalculator::ProjectionCalculator(
     const std::vector<TrajectoryPoint>& trajectory,
     const std::vector<std::vector<Point3D>>& point_3d,
@@ -310,7 +322,8 @@ bool ProjectionCalculator::calculate(
     int enable_adaptive,
     double growth_factor,
     double min_step,
-    double max_step
+    double max_step,
+    const ParallelExecutionConfig& parallel_config
 ) {
     projection_c_input_view input_view{};
     projection_c_config config{};
@@ -335,6 +348,10 @@ bool ProjectionCalculator::calculate(
     config.growth_factor = growth_factor;
     config.min_step = min_step;
     config.max_step = max_step;
+    config.enable_outer_parallel = parallel_config.enable_outer_parallel;
+    config.outer_tasks = parallel_config.outer_tasks;
+    config.enable_inner_parallel = parallel_config.enable_inner_parallel;
+    config.inner_threads = parallel_config.inner_threads;
 
     int status = projection_c_calculate(&input_view, &config, &output);
     if (status != PROJECTION_C_OK) {
@@ -432,7 +449,8 @@ bool ProjectionCalculator::calculate(
 
     if (!passed) {
         std::cout << "保存最后10个步长信息..." << std::endl;
-        std::string stuck_file_name = "output/stuck_point_" + std::to_string(static_cast<int>(stuck_depth)) + "m.txt";
+        const std::string stuck_depth_str = formatDepthForFileName(stuck_depth);
+        std::string stuck_file_name = "output/stuck_point_" + stuck_depth_str + "m.txt";
         std::ofstream stuck_file(stuck_file_name);
         stuck_file << "深度(m),工具长度(m) ,圆心X(m), 圆心Y(m),直径(m) ,当前段耗时(s),总耗时(s)\n";
 
@@ -448,7 +466,7 @@ bool ProjectionCalculator::calculate(
         }
         stuck_file.close();
 
-        std::string final_result_file = "output/final_result_" + std::to_string(static_cast<int>(stuck_depth)) + "m.txt";
+        std::string final_result_file = "output/final_result_" + stuck_depth_str + "m.txt";
         std::ofstream final_file(final_result_file);
         final_file << "工具长度(m), 工具半径(m), 卡点深度(m), 最大通过直径(m)\n";
         final_file << std::fixed << std::setprecision(3) << instrument_length_ << ","
@@ -462,7 +480,7 @@ bool ProjectionCalculator::calculate(
         std::cout << "已至底部, 总耗时:" << std::fixed << std::setprecision(2) << t_all << std::endl;
         std::cout << "保存最后10个步长信息..." << std::endl;
 
-        std::string pass_file_name = "output/pass_last_5m_" + std::to_string(static_cast<int>(end_deep)) + "m.txt";
+        std::string pass_file_name = "output/pass_last_5m_" + formatDepthForFileName(end_deep) + "m.txt";
         std::ofstream pass_file(pass_file_name);
         pass_file << "深度(m),工具长度(m) ,圆心X(m), 圆心Y(m),直径(m) ,当前段耗时(s),总耗时(s)\n";
 

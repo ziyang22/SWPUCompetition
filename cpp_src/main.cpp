@@ -80,7 +80,9 @@ std::string selectDataset() {
 
 // Get calculation parameters interactively
 void getParameters(double& instrument_length, double& instrument_radius,
-                   double& begin_deep, double& end_deep, double& num_step) {
+                   double& begin_deep, double& end_deep, double& num_step,
+                   int& enable_adaptive,
+                   projection::ParallelExecutionConfig& parallel_config) {
     std::cout << "\n请输入计算参数（直接回车使用默认值）:" << std::endl;
 
     std::string input;
@@ -105,6 +107,26 @@ void getParameters(double& instrument_length, double& instrument_radius,
     std::cout << "步长 (m) [" << num_step << "]: ";
     std::getline(std::cin, input);
     if (!input.empty()) num_step = std::stod(input);
+
+    std::cout << "启用自适应搜索? (0/1) [" << enable_adaptive << "]: ";
+    std::getline(std::cin, input);
+    if (!input.empty()) enable_adaptive = std::stoi(input);
+
+    std::cout << "启用区间任务并行? (0/1) [" << parallel_config.enable_outer_parallel << "]: ";
+    std::getline(std::cin, input);
+    if (!input.empty()) parallel_config.enable_outer_parallel = std::stoi(input);
+
+    std::cout << "外层任务数 [" << parallel_config.outer_tasks << "]: ";
+    std::getline(std::cin, input);
+    if (!input.empty()) parallel_config.outer_tasks = std::stoi(input);
+
+    std::cout << "启用窗口内部并行? (0/1) [" << parallel_config.enable_inner_parallel << "]: ";
+    std::getline(std::cin, input);
+    if (!input.empty()) parallel_config.enable_inner_parallel = std::stoi(input);
+
+    std::cout << "内部线程数 [" << parallel_config.inner_threads << "]: ";
+    std::getline(std::cin, input);
+    if (!input.empty()) parallel_config.inner_threads = std::stoi(input);
 }
 
 int main(int argc, char* argv[]) {
@@ -114,11 +136,12 @@ int main(int argc, char* argv[]) {
 
         // Determine dataset path
         std::string dataset_path;
-        if (argc >= 6) {
-            // Command line mode: use default dataset
-            dataset_path = "data/default";
+        if (argc >= 7) {
+            // Command line mode: dataset specified
+            dataset_path = std::string("data/") + argv[1];
             if (!isDirectory(dataset_path)) {
-                dataset_path = "."; // Fallback to current directory
+                std::cout << "数据集路径不存在: " << dataset_path << std::endl;
+                return 1;
             }
         } else {
             // Interactive mode: select dataset
@@ -126,7 +149,8 @@ int main(int argc, char* argv[]) {
         }
 
         // Load data
-        std::cout << "\n正在加载数据..." << std::endl;
+        std::cout << "\n使用数据集: " << dataset_path << std::endl;
+        std::cout << "正在加载数据..." << std::endl;
         std::string csv_path = dataset_path + "/all_data.csv";
         std::string npy_path = dataset_path + "/Point_3D.npy";
 
@@ -139,27 +163,33 @@ int main(int argc, char* argv[]) {
         double begin_deep = 3300.0;          // 起始深度 (m)
         double end_deep = 3400.0;            // 截止深度 (m)
         double num_step = 0.5;               // 步长 (m)
-     int enable_adaptive = 0;           // 自适应搜索开关
+        int enable_adaptive = 0;             // 自适应搜索开关
         double growth_factor = 2.0;          // 步长增长系数
         double min_step = 0.5;               // 最小步长
-      double max_step = 10.0;           // 最大步长
+        double max_step = 10.0;              // 最大步长
+        projection::ParallelExecutionConfig parallel_config;
 
         // Parse command line arguments if provided
-        if (argc >= 6) {
-            instrument_length = std::stod(argv[1]);
-            instrument_radius = std::stod(argv[2]);
-            begin_deep = std::stod(argv[3]);
-            end_deep = std::stod(argv[4]);
-            num_step = std::stod(argv[5]);
+        // Usage: ./projection_method <dataset> <length> <radius> <begin> <end> <step> [adaptive] [growth_factor] [min_step] [max_step] [outer_parallel] [outer_tasks] [inner_parallel] [inner_threads]
+        if (argc >= 7) {
+            instrument_length = std::stod(argv[2]);
+            instrument_radius = std::stod(argv[3]);
+            begin_deep = std::stod(argv[4]);
+            end_deep = std::stod(argv[5]);
+            num_step = std::stod(argv[6]);
 
             // 可选参数：自适应搜索
-          if (argc >= 7) enable_adaptive = std::stoi(argv[6]);
-       if (argc >= 8) growth_factor = std::stod(argv[7]);
-            if (argc >= 9) min_step = std::stod(argv[8]);
-            if (argc >= 10) max_step = std::stod(argv[9]);
+          if (argc >= 8) enable_adaptive = std::stoi(argv[7]);
+       if (argc >= 9) growth_factor = std::stod(argv[8]);
+            if (argc >= 10) min_step = std::stod(argv[9]);
+            if (argc >= 11) max_step = std::stod(argv[10]);
+            if (argc >= 12) parallel_config.enable_outer_parallel = std::stoi(argv[11]);
+            if (argc >= 13) parallel_config.outer_tasks = std::stoi(argv[12]);
+            if (argc >= 14) parallel_config.enable_inner_parallel = std::stoi(argv[13]);
+            if (argc >= 15) parallel_config.inner_threads = std::stoi(argv[14]);
         } else {
             // Interactive mode: get parameters
-            getParameters(instrument_length, instrument_radius, begin_deep, end_deep, num_step);
+            getParameters(instrument_length, instrument_radius, begin_deep, end_deep, num_step, enable_adaptive, parallel_config);
         }
 
         std::cout << std::endl;
@@ -174,6 +204,14 @@ int main(int argc, char* argv[]) {
             std::cout << "    增长系数: " << growth_factor << std::endl;
         std::cout << "    最小步长: " << min_step << " m" << std::endl;
             std::cout << "    最大步长: " << max_step << " m" << std::endl;
+        }
+        std::cout << "  区间任务并行: " << (parallel_config.enable_outer_parallel ? "启用" : "关闭") << std::endl;
+        if (parallel_config.enable_outer_parallel) {
+            std::cout << "    外层任务数: " << parallel_config.outer_tasks << std::endl;
+        }
+        std::cout << "  窗口内部并行: " << (parallel_config.enable_inner_parallel ? "启用" : "关闭") << std::endl;
+        if (parallel_config.enable_inner_parallel) {
+            std::cout << "    内部线程数: " << parallel_config.inner_threads << std::endl;
         }
         std::cout << std::endl;
 
@@ -203,7 +241,8 @@ int main(int argc, char* argv[]) {
             enable_adaptive,
           growth_factor,
           min_step,
-      max_step
+      max_step,
+            parallel_config
         );
 
         std::cout << std::string(60, '=') << std::endl;

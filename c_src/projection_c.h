@@ -97,6 +97,10 @@ typedef struct {
     double growth_factor;    // 步长增长系数 (默认 2.0)
     double min_step;         // 最小步长 (默认 0.5m)
     double max_step;         // 最大步长 (默认 10m)
+    int enable_outer_parallel; // 1: 启用区间任务并行
+    int outer_tasks;           // 外层任务数
+    int enable_inner_parallel; // 1: 启用窗口内部并行
+    int inner_threads;         // 窗口内部线程数
 } projection_c_config;
 
 typedef struct {

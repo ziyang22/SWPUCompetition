@@ -100,6 +100,14 @@ struct CalculationResult {
     double total_time;
 };
 
+// Parallel execution controls
+struct ParallelExecutionConfig {
+    int enable_outer_parallel = 0;
+    int outer_tasks = 1;
+    int enable_inner_parallel = 0;
+    int inner_threads = 1;
+};
+
 // Main projection calculation class
 class ProjectionCalculator {
 public:
@@ -121,7 +129,8 @@ public:
         int enable_adaptive = 0,
         double growth_factor = 2.0,
         double min_step = 0.5,
-        double max_step = 10.0
+        double max_step = 10.0,
+        const ParallelExecutionConfig& parallel_config = {}
     );
 
 private:

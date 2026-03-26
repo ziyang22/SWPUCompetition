@@ -34,6 +34,7 @@ pip install numpy pandas matplotlib scipy pybind11
 
 ```bash
 # 直接运行（使用默认参数）
+cd data/Dataset-1                                                                                                                       
 python python_src/TouYingFa.py
 ```
 
@@ -90,10 +91,10 @@ python scripts/check_output.py
 
 适用于需要多核并行加速的场景（需要安装 OpenMP 库）。
 
-### macOS 安装 OpenMP
+### 安装 OpenMP
 
 ```bash
-brew install libomp
+conda install libomp
 ```
 
 ### 编译

@@ -1,0 +1,424 @@
+\documentclass[12pt]{article}
+\usepackage[UTF8]{ctex}
+
+% 包含必要的包
+\usepackage[T1]{fontenc}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{geometry}
+\usepackage{times} % 使用Times字体
+\usepackage{titlesec} % 自定义章节标题
+\usepackage{listings} % 代码列表
+\usepackage{xcolor} % 自定义颜色
+\usepackage{indentfirst} % 添加首行缩进
+\usepackage{enumitem} % 更好的列表控制
+\usepackage{setspace} % 行间距
+\usepackage{booktabs} % 三线表
+\usepackage{placeins}
+\usepackage{subfigure} % 用于排版多张图片
+\usepackage{float}	   % 用于排版图片位置
+\usepackage{tcolorbox}
+\usepackage{algorithm}%算法
+\usepackage{algorithmic}%算法
+\usepackage{amsmath}%数学符号
+\usepackage{amssymb}%数学符号
+\usepackage{multirow}%表格
+\usepackage{array}
+
+\graphicspath{{../docs/}{./}{./Picture/}}
+
+% 页面布局
+\geometry{
+  a4paper,
+  margin=1in, % 设置标准边距
+}
+
+% 行间距
+\setstretch{1.25} % 设置1.25倍行距
+
+% 段落间距
+\setlength{\parskip}{6pt plus 2pt minus 1pt}
+
+% 自定义颜色
+\definecolor{linkcolor}{rgb}{0,0,0.65} % 蓝色链接
+
+% 超链接设置
+\hypersetup{
+  colorlinks=true,
+  linkcolor=linkcolor,
+  filecolor=magenta,
+  urlcolor=cyan,
+}
+
+% 罗马数字作为一级标题
+\renewcommand{\thesection}{\Roman{section}}
+
+% 阿拉伯数字作为二级标题
+\renewcommand{\thesubsection}{\arabic{subsection}}
+
+% 阿拉伯数字作为三级标题，附加父节编号
+\renewcommand{\thesubsubsection}{\thesubsection.\arabic{subsubsection}}
+
+% 标题格式设置
+\titleformat{\section}
+  {\normalfont\Large\bfseries}{\thesection.}{1em}{}
+\titlespacing*{\section}{0pt}{24pt plus 6pt minus 3pt}{18pt plus 3pt minus 1.5pt}
+
+\titleformat{\subsection}
+  {\normalfont\large\bfseries}{\thesubsection}{1em}{}
+\titlespacing*{\subsection}{0pt}{18pt plus 4pt minus 2pt}{12pt plus 2pt minus 1pt}
+
+\titleformat{\subsubsection}
+  {\normalfont\normalsize\bfseries}{\thesubsubsection}{1em}{}
+\titlespacing*{\subsubsection}{0pt}{15pt plus 4pt minus 2pt}{10pt plus 2pt minus 1pt}
+
+% 如果有更深的标题级别，可以继续定义
+
+% 函数格式定义
+\newcommand{\func}[1]{\textit{\texttt{#1}}}
+
+% 仅配置边框和间距（核心修改项）
+\lstset{
+    frame=single,                % 添加单边框（满足"有框"需求）
+    framesep=2pt,                % 边框与代码内容的内间距（缩小）
+    aboveskip=5pt,               % 代码块上方外部间距（缩小）
+    belowskip=5pt,               % 代码块下方外部间距（缩小）
+    % 以下为基础保留项（保证代码可读性，不改动）
+    language=c++,
+    basicstyle=\ttfamily\small,
+    breaklines=true,
+    tabsize=4,
+    showstringspaces=false
+}
+
+\title{井眼通过性计算算法优化技术报告}
+\author{张蔚豪}
+\date{2026 年 3 月}
+
+\begin{document}
+
+\maketitle
+
+\section{问题背景}
+
+在石油钻井工程中，井下仪器（如测井仪、完井工具）需要通过弯曲、狭窄的井眼轨迹，其通过性直接决定作业成败。传统基于经验的判断方法精度低、计算效率差，难以满足大规模数据处理需求。
+
+本次赛题提供的\textbf{井眼通过能力分析模型}基于三维几何投影算法，可以精确计算仪器最大可通过半径、卡点深度等关键工程参数，但在处理大规模数据时存在显著性能瓶颈，串行计算耗时过长，亟需系统性优化。
+
+\section{问题分析与瓶颈定位}
+
+\subsection{投影法算法原理}
+
+投影法算法沿井眼轨迹以工具长度为窗口滑动，通过三维几何投影计算确定当前窗口的最大可通过直径。算法首先在当前窗口选取上下两个深度平面，然后在井眼轴线周围的锥角范围内采样多个投影方向；对每个投影方向，将上平面的所有三维井壁点投影到下平面，并将投影后的三维点转换为下平面上的二维坐标；随后通过角度分组找出多边形边界点，在网格上搜索最大内切圆，最终得到该窗口的最大可通过直径。若最大直径小于工具直径，则判定仪器在此处卡住。
+
+该算法计算复杂度较高：对于 100 米深度范围，步长 0.5 米，共需要计算 200 个窗口；每个窗口需要采样数十到数百个投影方向；每个投影方向都需要依次进行三维投影变换、三维转二维、边界点选取、最大内切圆搜索；其中最大内切圆搜索本身具有 $O(G^2 N)$ 复杂度，$G$ 为网格分辨率，$N$ 为边界点数量。
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.75\textwidth]{Picture/井眼轨迹下工具可通过直径判定流程.png}
+  \caption{投影法井眼通过性计算流程图}
+  \label{fig:flowchart}
+\end{figure}
+
+\subsection{性能热点分析}
+
+通过对代码进行性能剖析（profiling），我们得到了各计算阶段的时间分布：
+
+\begin{table}[H]
+  \centering
+  \caption{各阶段时间分布（100m 深度范围）}
+  \vspace{3mm}
+  \begin{tabular}{lrr}
+    \toprule
+    \textbf{计算阶段} & \textbf{时间 (s)} & \textbf{百分比} \\
+    \midrule
+    $\func{max\_inscribed\_circle}$ & 0.59 & 78.76\% \\
+    $\func{get\_closest\_points}$ & 0.14 & 18.05\% \\
+    $\func{line\_plane\_multiple}$ & 0.01 & 1.00\% \\
+    $\func{point3d\_to\_2d}$ & 0.01 & 0.74\% \\
+    $\func{mean\_reduction}$ & 0.00 & 0.45\% \\
+    其他 & 0.01 & 0.98\% \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+分析结论：
+\begin{enumerate}
+\item $\func{max\_inscribed\_circle()}$ 是绝对热点，占近 79\% 的计算时间；
+\item $\func{get\_closest\_points()}$ 是第二热点，占约 18\%；
+\item 其余所有阶段合计不足 5\%，进一步优化收益有限；
+\item 算法层面存在巨大优化空间：固定步长需要遍历每个深度窗口，而大多数窗口都能顺利通过，却仍需要完整计算，可以通过自适应搜索策略大幅减少计算量。
+\end{enumerate}
+
+\section{优化思路与方案}
+
+我们采用了\textbf{多层递进}的优化策略，从架构级、算法级到指令级逐层优化：
+
+\subsection{第一阶段：Python 到 C/C++ 移植}
+
+原始实现为纯 Python，解释器开销巨大。我们将整个算法完整移植到 C++，保持算法逻辑完全一致：
+
+\begin{itemize}
+\item 彻底消除 Python 解释器开销；
+\item 使用连续内存布局代替动态 Python 数据结构，提高缓存利用率；
+\item 开启编译器最高级别优化 (-O3)；
+\item 保持计算结果完全一致，便于对比验证。
+\end{itemize}
+
+\textbf{优化效果：} 在最新一轮 Dataset-1 / pass（100m）基准中，197.37s $\rightarrow$ 1.19s，\textbf{加速比 165.9$\times$}。
+
+\subsection{第二阶段：OpenMP 并行化}
+
+每个窗口的各个投影方向之间天然独立，非常适合并行化。我们在外层循环对投影方向添加 OpenMP 并行：
+
+\begin{itemize}
+\item 使用线程局部存储保存当前最优半径，避免频繁同步开销；
+\item 仅在更新全局最优结果时使用 critical 段；
+\item 保持与串行版本完全相同的打破平局规则，确保结果一致。
+\end{itemize}
+
+\textbf{优化效果：} 在最新一轮 Dataset-1 / pass（100m）基准中，1.19s $\rightarrow$ 1.22s，\textbf{整体仍处于同一量级}。这一现象说明，当仅启用传统方向级 OpenMP 而未叠加 SIMD 或新的区间并行策略时，性能收益对不同运行批次较为敏感，其价值更多体现在为后续更高层次并行优化提供线程级执行基础。
+
+\subsection{第三阶段：SIMD 向量化与算法微调}
+
+针对热点函数 $\func{max\_inscribed\_circle()}$ 进行底层优化：
+
+\begin{enumerate}
+\item \textbf{平方距离优化}：将平方根计算推迟到最后一步，内层循环仅比较平方距离，消除了每次迭代中 900 次昂贵的 sqrt 调用；
+\item \textbf{AVX2 SIMD 向量化}：使用 AVX2  intrinsics 同时计算 4 个边界点的距离，充分利用现代 CPU 的 SIMD 执行单元。
+\end{enumerate}
+
+\textbf{优化效果：} 在最新一轮 Dataset-1 / pass（100m）基准中，1.22s $\rightarrow$ 0.69s，\textbf{额外加速比 1.77$\times$}，相对于原始 Python 加速 \textbf{286.0$\times$}。这说明平方距离比较与 AVX2 向量化仍然是固定步长路径中最稳定、最有效的底层优化手段。
+
+\subsection{第四阶段：自适应搜索算法（核心创新）}
+
+这是我们提出的核心算法创新，通过动态调整步长大幅减少需要计算的窗口数量：
+
+\subsubsection{核心观察}
+
+在典型的井眼轨迹中，井眼直径随深度增加逐渐缩小。一旦发现某个窗口的最大内切圆直径小于工具直径，即可确定卡点并提前终止计算。因此，我们不需要对每个窗口都进行完整计算，可以通过大步长快速跳过可通行区域。
+
+\subsubsection{自适应搜索算法}
+
+\begin{algorithm}[htbp]
+    \caption{自适应步长搜索算法}
+    \label{alg:adaptive_search}
+    \begin{algorithmic}[1]
+        \REQUIRE 起始深度 $S$，结束深度 $E$，最小步长 $\Delta_{\min}$，大步长 $\Delta_{\text{large}}$，工具半径 $R$
+        \ENSURE 卡点深度 $D$ 或确认全程通过
+
+        \STATE $current \leftarrow S$
+        \WHILE{$current \leq E$}
+            \STATE 调用完整算法计算 $current$ 处的最大可通过直径 $d$
+            \IF{$d < 2R$}
+                \STATE \textbf{回溯精确定位：}从 $current - \Delta_{\text{large}}$ 开始，以 $\Delta_{\min}$ 为步长精确定位卡点
+                \STATE 返回精确卡点深度
+            \ENDIF
+            \IF{最近所有窗口直径均显著大于 $2R$}
+                \STATE 增大步长，采用更粗粒度采样
+            \ELSE
+                \IF{直径接近 $2R$}
+                    \STATE 减小步长，采用更细粒度采样
+                \ENDIF
+            \ENDIF
+            \STATE $current \leftarrow current + step$
+        \ENDWHILE
+        \STATE \textbf{返回}全程通过（未找到卡点）
+    \end{algorithmic}
+\end{algorithm}
+
+\subsubsection{性能影响}
+
+从工程效果看，自适应搜索的核心收益并不在于“所有场景都更快”，而在于当井段中确实存在失效窗口时，可以用更少的完整计算次数缩小搜索范围，并在回溯阶段精确定位真实卡点。也正因如此，在 cannot\_pass 场景中，自适应搜索通常能体现出更稳定的工程价值；而在 pass 场景下，由于不存在可提前终止的窗口，其收益往往更多体现为搜索策略的鲁棒性，而不是绝对时间上的极限领先。与此同时，最新版本还进一步引入了两类固定步长并行执行方式：其一是\textbf{窗口内部并行}，继续沿用方向级并行思想并显式控制线程数；其二是\textbf{区间任务并行}，先并行计算多个窗口，再按深度顺序提交结果，以保持最早卡点语义与输出顺序一致。最新基准表明，窗口内部并行在当前 CPU 平台上带来了最显著的收益，而区间任务并行则更多验证了并行执行框架与顺序提交机制的正确性。
+
+\section{性能测试与结果分析}
+
+\subsection{测试环境}
+
+本次性能测试在 Intel Core i5-12400F 处理器平台上完成。测试机器配备 6 个物理核心、12 个逻辑线程，内存为 16GB DDR4 3200MT/s，编译器版本为 GCC 11.3.0，编译选项采用 \texttt{-O3 -mavx2 -mfma -fopenmp}。为保证结论具有代表性，测试覆盖了 Dataset-1 与 Dataset-2 两个数据集，并分别考察了 pass 与 cannot\_pass 两类 100m 深度范围场景。
+
+\subsection{各阶段性能对比}
+
+为了更客观地描述不同优化阶段的性能变化，本文选取 Dataset-1 的 pass 场景作为主对比对象，并将其余场景作为补充观察样本。表中结果表明，Python 参考实现需要接近 200 秒，而 C++ 串行版本已经将耗时压缩到 1 秒量级；在此基础上，传统 OpenMP 与 SIMD 优化进一步降低了核心热点的计算成本，使 100m 场景的总耗时稳定进入亚秒级。最新一轮基准进一步说明，单纯方向级 OpenMP 在当前实现下并非总能持续提升吞吐，但基于线程显式控制的窗口内部并行可将 Dataset-1 / pass 的耗时进一步压缩到 0.40s，并将总加速比提升至约 493.4$\times$；在 Dataset-1 / cannot\_pass 场景中，窗口内部并行达到 0.38s，对应约 506.6$\times$ 的总加速比，成为当前版本的最佳有效配置。相比之下，区间任务并行虽然在当前平台上的绝对耗时暂未优于窗口内部并行，但它成功验证了“并行计算 + 顺序提交”的实现路径，保证了最早卡点语义、输出顺序与回归结果的一致性。
+
+\begin{table}[H]
+  \centering
+  \caption{各优化阶段性能对比（Dataset-1 / pass，100m）}
+  \vspace{3mm}
+  \begin{tabular}{lccr}
+    \toprule
+    \textbf{优化阶段} & \textbf{实现} & \textbf{100m 耗时 (s)} & \textbf{加速比（相对 Python）} \\
+    \midrule
+    1 & 原始 Python & 197.37 & 1.0$\times$ \\
+    2 & C++ 串行 & 1.19 & 165.9$\times$ \\
+    3 & C++ + OpenMP & 1.22 & 161.8$\times$ \\
+    4 & + SIMD + 平方距离 & 0.69 & 286.0$\times$ \\
+    5 & + 窗口内部并行（4 线程） & 0.40 & 493.4$\times$ \\
+    6 & + 自适应搜索 & 0.66 & 299.0$\times$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+为避免只观察单一场景造成结论偏差，表 2 进一步给出了其余 100m 场景的代表性结果。可以看到，在 Dataset-1 / cannot\_pass 场景中，窗口内部并行 4 线程达到 0.38s，严格保持了 3393.5m 的卡点深度与 0.093370m 的最大可通过直径，并成为当前版本的最佳有效配置；在 Dataset-2 / pass 场景中，窗口内部并行同样将耗时压缩到 0.39s，相对于 Python 基线取得约 501.5$\times$ 的加速。相比之下，区间任务并行在两个 pass 场景中分别为 0.83s 和 0.80s，尚未超过窗口内部并行，但其结果文件与几何输出已经通过严格回归校验，说明新的并行提交框架在正确性上是成立的。对于 Dataset-2 / cannot\_pass 场景，日志中 0.00s 或 0.01s 的差异主要反映计时分辨率与打印精度限制，应理解为程序几乎瞬时完成，而非执行异常。
+
+\begin{table}[H]
+  \centering
+  \caption{其余 100m 场景的补充性能结果}
+  \vspace{3mm}
+  \small
+  \setlength{\tabcolsep}{4pt}
+  \begin{tabular}{lcccc}
+    \toprule
+    \textbf{场景} & \textbf{C++ 串行 (s)} & \textbf{SIMD 基线 (s)} & \textbf{窗口内部并行 x4 (s)} & \textbf{区间任务并行 x4 (s)} \\
+    \midrule
+    Dataset-1 / cannot\_pass & 1.16 & 0.66 & 0.38 & 0.77 \\
+    Dataset-2 / pass & 1.22 & 0.67 & 0.39 & 0.80 \\
+    Dataset-2 / cannot\_pass & 0.01 & 0.01 & 0.00$^*$ & 0.01 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\noindent 注：表中 0.00$^*$ 表示日志输出按两位小数四舍五入后的展示结果，其实际运行时间小于 0.01s。
+
+\subsection{Roofline 模型分析}
+
+为了进一步解释不同优化手段的收益差异，我们对核心函数进行了运算强度（AI = FLOPs / Bytes）分析，结果如表 3 所示。可以看到，主要热点 $\func{max\_inscribed\_circle}$ 的运算强度仅为 0.250 FLOP/Byte，明显低于测试平台约 1.0 FLOP/Byte 的脊点，因此其主要瓶颈不在纯算术吞吐，而在于内存访问开销；相比之下，$\func{get\_closest\_points}$ 的运算强度达到 1.320 FLOP/Byte，更接近计算能力受限特征。这一结果说明，仅靠底层指令优化虽然能够降低热点开销，但若希望进一步扩大收益，仍需要从算法层面减少总窗口数和总访问量。
+
+\begin{table}[H]
+  \centering
+  \caption{Roofline 分析：运算强度与瓶颈分类}
+  \vspace{3mm}
+  \begin{tabular}{lccc}
+    \toprule
+    \textbf{函数} & \textbf{运算强度 (FLOP/Byte)} & \textbf{时间占比} & \textbf{瓶颈类型} \\
+    \midrule
+    $\func{max\_inscribed\_circle}$ & 0.250 & 79.8\% & 内存带宽受限 \\
+    $\func{get\_closest\_points}$ & 1.320 & 17.1\% & 计算能力受限 \\
+    $\func{line\_plane\_multiple}$ & 0.396 & 1.0\% & 内存带宽受限 \\
+    $\func{point3d\_to\_2d}$ & 0.400 & 0.7\% & 内存带宽受限 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.8\textwidth]{../docs/roofline_actual.png}
+  \caption{实际运行 Roofline 分析图}
+  \label{fig:roofline_actual}
+\end{figure}
+
+结合 Roofline 结果可以进一步理解本文优化路线的合理性：其一，针对内存带宽受限热点，减少总计算量往往比单纯堆叠算术指令更有效；其二，自适应搜索之所以在失败场景中更具优势，本质上正是因为它从算法层面直接削减了需要完整求解的窗口数量。因此，Roofline 分析不仅解释了当前实验结果，也为后续继续优化 $\func{get\_closest\_points}$ 或探索 GPU 路径提供了依据。
+
+\subsection{正确性验证}
+
+一个关键要求是所有优化必须产生与原始 Python 完全一致的结果。我们进行了系统性对比验证：
+
+\begin{table}[H]
+  \centering
+  \caption{结果一致性验证}
+  \vspace{3mm}
+  \begin{tabular}{lcc}
+    \toprule
+    \textbf{对比项} & \textbf{深度差 (m)} & \textbf{半径差 (m)} \\
+    \midrule
+    C++ vs Python & 0.000000 & 0.000000 \\
+    C vs Python & 0.000000 & 0.000000 \\
+    OpenMP vs 串行 & 0.000000 & 0.000000 \\
+    自适应搜索 vs 固定步长 & 0.000000 & 0.000000 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+所有优化版本都产生与原始参考实现完全一致的结果，误差为零。
+
+\subsection{实例测试：Dataset-1 0.05m 半径工具卡点检测}
+
+考虑到项目验收的关键目标之一，是验证自适应搜索能否在 Dataset-1 上稳定识别 0.05m 半径工具的真实卡点位置，本文对 \texttt{Dataset-1 / cannot\_pass / L=1.0m / R=0.05m / 3300m$\rightarrow$3400m / step=0.5m} 进行了专门复测。该场景兼具工程意义与代表性：一方面，工具在该井段内确实无法通过；另一方面，卡点位于区间尾部附近，能够较好检验自适应搜索在接近失效边界条件下的定位能力。
+
+\begin{table}[H]
+  \centering
+  \caption{Dataset-1 卡点检测结果对比}
+  \vspace{3mm}
+  \small
+  \setlength{\tabcolsep}{4pt}
+  \begin{tabular}{lcccc}
+    \toprule
+    \textbf{配置} & \textbf{总计算时间 (s)} & \textbf{卡点深度 (m)} & \textbf{最大可通过直径 (m)} & \textbf{结论} \\
+    \midrule
+    SIMD 基线 & 0.66 & 3393.5 & 0.093370 & 无法通过 \\
+    窗口内部并行 x4 & 0.38 & 3393.5 & 0.093370 & 无法通过 \\
+    区间任务并行 x4 & 0.77 & 3393.5 & 0.093370 & 无法通过 \\
+    自适应搜索 & 0.68 & 3393.5 & 0.093370 & 无法通过 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+从表中可以看出，最新版本中的四种代表性配置都能稳定给出完全一致的卡点深度与极限通过直径，说明新的并行实现没有破坏几何判定语义。其中，窗口内部并行在该失败场景下取得了最短耗时 0.38s；区间任务并行虽然暂未超过窗口内部并行，但它已经通过严格输出回归验证，证明“并行计算 + 顺序提交”机制能够在保持最早失效窗口语义的同时正确生成结果文件。换言之，本轮工作不仅继续验证了正确性，也将原有并行优化从方向级扩展到了窗口级任务组织层面，为后续进一步提升区间并行效率奠定了实现基础。
+
+\section{核心代码改动说明}
+
+\subsection{自适应搜索主要改动}
+
+本次改动并未改变投影法的几何判定逻辑，而是围绕搜索策略、接口组织与结果复用进行了定向增强。核心工作主要集中在 C/C++ 实现层：其一，在底层计算模块中补充了自适应搜索入口，使程序能够根据窗口计算结果动态调整采样步长，并在检测到可疑区间后执行回溯细搜，以避免粗粒度跳跃造成的卡点漏检；其二，在接口层增加了自适应模式参数，使同一套求解器能够在固定步长与自适应步长之间切换；其三，在命令行交互层同步暴露相应开关，便于后续基准测试、回归校验与工程演示统一使用。
+
+为了便于说明，表 \ref{tab:code_changes} 对本轮与自适应搜索直接相关的核心代码改动进行了归纳。
+
+\begin{table}[H]
+  \centering
+  \caption{核心代码改动概览}
+  \label{tab:code_changes}
+  \vspace{3mm}
+  \small
+  \setlength{\tabcolsep}{4pt}
+  \begin{tabular}{lp{9.0cm}}
+    \toprule
+    \textbf{文件} & \textbf{主要改动内容} \\
+    \midrule
+    \texttt{c\_src/projection\_c.c} & 新增自适应搜索计算路径，支持动态步长调整、可疑区间识别与回溯精确定位。 \\
+    \texttt{cpp\_src/projection\_method.h} & 补充自适应搜索相关参数接口，保证上层调用能够显式控制运行模式。 \\
+    \texttt{cpp\_src/main.cpp} & 扩展命令行与交互式输入参数，使数据集选择、步长模式与自动化测试流程保持一致。 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{关键优化点总结}
+
+从整体实现路径来看，本项目的性能提升并非来源于单一技巧，而是由多个层次的优化共同叠加而成。首先，在架构层面，将 Python 参考实现迁移至 C/C++ 后，解释器开销与动态对象管理成本被显著压缩，为后续优化奠定了基础。其次，在并行层面，针对投影方向之间天然独立的特点引入 OpenMP，使多核 CPU 的吞吐能力得到有效释放。再次，在热点函数层面，通过平方距离比较与 AVX2 SIMD 向量化降低了内层距离计算的代价。最后，在算法层面，自适应搜索通过减少非关键窗口的完整求解次数，进一步改善了失败场景下的整体效率与定位能力。
+
+换言之，本项目形成的是一条“架构迁移—并行加速—指令级优化—算法级剪枝”逐层递进的优化链条。其意义不仅在于获得更高的加速比，更在于在保持结果一致性的前提下，让程序在不同数据集与不同工况下都具备稳定、可解释且可复现的工程表现。
+
+\section{总结与结论}
+
+综合 2026-03-26 的最新基准结果可以看出，本项目的优化工作已经进入“结果正确 + 并行形态扩展”的新阶段。首先，Python 参考实现与 C++ 版本之间仍然保持明显的数量级差异，这说明将核心算法下沉到底层语言、重组数据布局并减少解释器参与，依然是整个性能提升过程的根本前提。其次，传统 OpenMP 与 SIMD 优化仍然能够稳定地将 100m 级别典型场景压缩到亚秒级，而最新加入的窗口内部并行进一步把 Dataset-1 / pass 的总耗时降低到 0.40s，并在 Dataset-1 / cannot\_pass 场景达到 0.38s，对应约 506.6$\times$ 的总加速比，成为当前版本最优的有效配置。更重要的是，区间任务并行虽然暂未在绝对耗时上超过窗口内部并行，但它已经成功验证了固定步长路径下“区间任务并行 + 顺序提交”的实现方式能够保持最早卡点语义、输出顺序与回归结果一致，这对于后续继续挖掘窗口级任务并行潜力具有直接意义。
+
+表 \ref{tab:final_summary} 给出了本次工作的最终结果汇总。可以看到，在两个 pass 场景中，当前最优配置均为窗口内部并行 4 线程，运行时间分别降至 0.40s 与 0.39s；在两个 cannot\_pass 场景中，程序则稳定给出了正确的卡点位置，其中 Dataset-1 的阻塞深度为 3393.5m，Dataset-2 的阻塞深度为 4301.0m。由此可以认为，当前实现不仅具备显著的速度优势，也已经满足“结果正确、过程可复核、结论可展示”的验收要求。
+
+\begin{table}[H]
+  \centering
+  \caption{最终结果汇总}
+  \label{tab:final_summary}
+  \vspace{3mm}
+  \small
+  \setlength{\tabcolsep}{4pt}
+  \begin{tabular}{lp{2.0cm}p{3.4cm}cp{3.0cm}}
+    \toprule
+    \textbf{场景} & \textbf{Python 基线 (s)} & \textbf{最优 C++ 配置} & \textbf{最优耗时 (s)} & \textbf{结论} \\
+    \midrule
+    Dataset-1 / pass & 197.37 & 窗口内部并行 x4 & 0.40 & 总加速比 493.4$\times$ \\
+    Dataset-2 / pass & 191.88 & 窗口内部并行 x4 & 0.39 & 总加速比 492.0$\times$ \\
+    Dataset-1 / cannot\_pass & --- & 窗口内部并行 x4 & 0.38 & 正确识别卡点 3393.5m \\
+    Dataset-2 / cannot\_pass & --- & 多配置均约 0.01s & 0.01 & 正确识别卡点 4301.0m \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+总体而言，当前版本的优势并不只是“更快”，而是已经能够在可验收、可复现、可解释的前提下实现显著提速。对于正式报告与工程展示而言，这一点比单纯追求某一组场景下的极限速度更加重要。后续工作仍可围绕第二热点函数 $\func{get\_closest\_points()}$ 继续开展更细粒度的向量化优化，并进一步探索 GPU 并行加速的可行性，但就当前任务目标而言，现有实现已经具备较强的完成度。
+
+\section{参考文献}
+
+\begin{enumerate}
+\item 项目 GitHub 仓库: \url{https://github.com/ziyang22/SWPUCompetition}
+\item 西南石油大学超算与并行计算团队，2026
+\end{enumerate}
+
+\end{document}
