@@ -1150,42 +1150,113 @@ int projection_c_calculate(
                     interval_end = end - 1;
                 }
 
-                for (candidate_j = search_idx + step; candidate_j <= interval_end; candidate_j += step) {
-                    projection_c_circle current_circle;
-                    projection_c_result_row current_row;
-                    double window_time;
-                    int is_near_failure;
-                    int is_failure;
+                int interval_count = 0;
+                int ci;
+                int* interval_js = NULL;
+                projection_c_window_eval* interval_evals = NULL;
 
-                    if (!evaluate_local_window(input, config, begin, step, candidate_j, &workspace,
-                                               &current_circle, &current_row, &window_time)) {
+                /* 收集区间内所有候选窗口 */
+                for (ci = search_idx + step; ci <= interval_end; ci += step) {
+                    interval_count++;
+                }
+
+                if (interval_count > 0) {
+                    interval_js = (int*)malloc((size_t)interval_count * sizeof(int));
+                    interval_evals = (projection_c_window_eval*)calloc((size_t)interval_count, sizeof(projection_c_window_eval));
+                    if (!interval_js || !interval_evals) {
+                        free(interval_js); free(interval_evals);
                         set_error(output, PROJECTION_C_ERROR_ALLOCATION_FAILED, "allocation failed");
                         goto cleanup;
                     }
-
-                    current_row.total_time = now_seconds() - total_start_time;
-                    if (!append_result(output, current_row)) {
-                        set_error(output, PROJECTION_C_ERROR_ALLOCATION_FAILED, "allocation failed");
-                        goto cleanup;
+                    ci = 0;
+                    for (candidate_j = search_idx + step; candidate_j <= interval_end; candidate_j += step) {
+                        interval_js[ci++] = candidate_j;
                     }
 
-                    output->profile.window_count += 1;
-                    output->profile.window_time_total += window_time;
-                    if (window_time > output->profile.window_time_max) {
-                        output->profile.window_time_max = window_time;
+#ifdef _OPENMP
+                    {
+                        double ws = omp_get_wtime();
+#pragma omp parallel
+                        {
+                            point3d_buffer t_dir = {NULL,0,0};
+                            point3d_buffer t_proj = {NULL,0,0};
+                            point2d_buffer t_p2d = {NULL,0,0};
+                            point2d_buffer t_cls = {NULL,0,0};
+                            projection_c_workspace t_ws;
+                            init_workspace(&t_ws,&t_dir,&t_proj,&t_p2d,&t_cls);
+#pragma omp for schedule(static)
+                            for (ci = 0; ci < interval_count; ++ci) {
+                                int ok = evaluate_local_window(input, config, begin, step,
+                                    interval_js[ci], &t_ws,
+                                    &interval_evals[ci].circle,
+                                    &interval_evals[ci].row,
+                                    &interval_evals[ci].window_time);
+                                interval_evals[ci].ok = ok ? 1 : 0;
+                                interval_evals[ci].failed = ok ? (config->instrument_radius > interval_evals[ci].circle.radius) : 0;
+                            }
+                            free_workspace(&t_ws);
+                        }
+                        (void)ws; /* wall time already tracked by total_start_time */
                     }
+#else
+                    for (ci = 0; ci < interval_count; ++ci) {
+                        int ok = evaluate_local_window(input, config, begin, step,
+                            interval_js[ci], &workspace,
+                            &interval_evals[ci].circle,
+                            &interval_evals[ci].row,
+                            &interval_evals[ci].window_time);
+                        interval_evals[ci].ok = ok ? 1 : 0;
+                        interval_evals[ci].failed = ok ? (config->instrument_radius > interval_evals[ci].circle.radius) : 0;
+                    }
+#endif
 
-                    is_failure = config->instrument_radius > current_circle.radius;
-                    is_near_failure = (config->instrument_radius + near_failure_margin) > current_circle.radius;
-                    if ((is_failure || is_near_failure) && suspicious_j < 0) {
-                        suspicious_j = candidate_j;
-                        suspicious_circle = current_circle;
+                    /* 串行遍历结果，保留顺序语义 */
+                    for (ci = 0; ci < interval_count; ++ci) {
+                        projection_c_circle current_circle;
+                        projection_c_result_row current_row;
+                        double window_time;
+                        int is_near_failure;
+                        int is_failure;
+
+                        if (!interval_evals[ci].ok) {
+                            free(interval_js); free(interval_evals);
+                            set_error(output, PROJECTION_C_ERROR_ALLOCATION_FAILED, "allocation failed");
+                            goto cleanup;
+                        }
+
+                        current_circle = interval_evals[ci].circle;
+                        current_row = interval_evals[ci].row;
+                        window_time = interval_evals[ci].window_time;
+
+                        current_row.total_time = now_seconds() - total_start_time;
+                        if (!append_result(output, current_row)) {
+                            free(interval_js); free(interval_evals);
+                            set_error(output, PROJECTION_C_ERROR_ALLOCATION_FAILED, "allocation failed");
+                            goto cleanup;
+                        }
+
+                        output->profile.window_count += 1;
+                        output->profile.window_time_total += window_time;
+                        if (window_time > output->profile.window_time_max) {
+                            output->profile.window_time_max = window_time;
+                        }
+
+                        is_failure = config->instrument_radius > current_circle.radius;
+                        is_near_failure = (config->instrument_radius + near_failure_margin) > current_circle.radius;
+                        if ((is_failure || is_near_failure) && suspicious_j < 0) {
+                            suspicious_j = interval_js[ci];
+                            suspicious_circle = current_circle;
+                        }
+                        if (is_failure) {
+                            earliest_failure_j = interval_js[ci];
+                            failure_circle = current_circle;
+                            break;
+                        }
                     }
-                    if (is_failure) {
-                        earliest_failure_j = candidate_j;
-                        failure_circle = current_circle;
-                        break;
-                    }
+                    free(interval_js);
+                    free(interval_evals);
+                    interval_js = NULL;
+                    interval_evals = NULL;
                 }
 
                 printf("  [自适应] 第%d次: 深度 %.1f->%.1f (步长%.2fm), 区间最小直径%s%.3f, 耗时%.2fs\n",
@@ -1323,10 +1394,14 @@ int projection_c_calculate(
                 wall_elapsed = omp_get_wtime() - wall_start;
             }
 #else
-            for (window_index = 0; window_index < window_count; ++window_index) {
-                if (!compute_window_eval(input, config, begin, step, j_values[window_index], &evals[window_index])) {
-                    evals[window_index].ok = 0;
+            {
+                double wall_start_serial = now_seconds();
+                for (window_index = 0; window_index < window_count; ++window_index) {
+                    if (!compute_window_eval(input, config, begin, step, j_values[window_index], &evals[window_index])) {
+                        evals[window_index].ok = 0;
+                    }
                 }
+                wall_elapsed = now_seconds() - wall_start_serial;
             }
 #endif
 

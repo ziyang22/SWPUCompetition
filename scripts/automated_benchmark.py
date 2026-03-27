@@ -408,7 +408,7 @@ def main():
                                           tc.instrument_radius, tc.begin_deep, tc.end_deep)
             if result.success and result.time_seconds is not None:
                 baseline_results[tc.dataset] = result.time_seconds
-                log_message(log_file, f"Python baseline time: {result.time_seconds:.2f}s")
+                log_message(log_file, f"Python baseline time: {result.time_seconds:.4f}s")
             else:
                 baseline_results[tc.dataset] = None
                 log_error(log_file, f"Python baseline FAILED")
@@ -467,8 +467,6 @@ def main():
         # Get baseline time for this dataset
         log_message(log_file, f"\n=== Dataset: {dataset} ===")
         baseline_time = baseline_results.get(dataset)
-        if baseline_time is None:
-            continue
 
         # Print results for both scenarios
         scenarios = sorted(set([tc.name for tc in test_cases if tc.dataset == dataset]))
@@ -480,21 +478,26 @@ def main():
             results_dict = all_results.get(ds_key, {})
 
             if results_dict:
-                log_message(log_file, f"{'Configuration':<35} {'Time (s)':>10}")
-                log_message(log_file, "-" * 47)
+                log_message(log_file, f"{'Configuration':<35} {'Time (s)':>12} {'Speedup':>10}")
+                log_message(log_file, "-" * 60)
+                print(f"  {'Configuration':<35} {'Time (s)':>12} {'Speedup':>10}")
+                print("  " + "-" * 58)
 
                 # Print Python baseline first if available
-                baseline_for_scenario = baseline_time
-                if baseline_for_scenario is not None:
-                    log_message(log_file, f"{'Python Baseline':<35} {baseline_for_scenario:>10.2f} 1.0x")
+                if baseline_time is not None:
+                    log_message(log_file, f"{'Python Baseline':<35} {baseline_time:>12.4f} {'1.0x':>10}")
+                    print(f"  {'Python Baseline':<35} {baseline_time:>12.4f} {'1.0x':>10}")
 
                 # Print C++ configuration results
                 for config_name, time in results_dict.items():
                     if time is None:
-                        log_message(log_file, f"{config_name:<35} {'FAILED':>10}")
+                        log_message(log_file, f"{config_name:<35} {'FAILED':>12}")
+                        print(f"  {config_name:<35} {'FAILED':>12}")
                     else:
-                        speedup = baseline_for_scenario / time if baseline_for_scenario is not None and time > 0 else 0
-                        log_message(log_file, f"{config_name:<35} {time:>10.2f} ({speedup:.1f}x)")
+                        speedup = baseline_time / time if baseline_time is not None and time > 0 else 0
+                        speedup_str = f"{speedup:.1f}x" if speedup > 0 else "N/A"
+                        log_message(log_file, f"{config_name:<35} {time:>12.4f} {speedup_str:>10}")
+                        print(f"  {config_name:<35} {time:>12.4f} {speedup_str:>10}")
                 log_message(log_file, "")
                 print()
 
