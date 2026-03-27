@@ -60,7 +60,7 @@ output/*.txt
 !report/*.md
 
 # Log files
-logs/
+# logs/  # 保留 benchmark 日志
 
 # LaTeX build artifacts
 report/*.aux

@@ -1,0 +1,23 @@
+Benchmark_log started at 2026-03-27T17:06:58.514020
+
+Host: posix.uname_result(sysname='Linux', nodename='a47c93d068ad', release='5.4.241-1-tlinux4-0023.1', version='#1 SMP Tue May 6 19:24:58 CST 2025', machine='x86_64')
+Working directory: /workspace/SWPUCompetition
+======================================================================
+
+
+======================================================================
+ System Information
+======================================================================
+
+CPU Model: AMD EPYC 9K65 192-Core Processor
+Physical cores: 17
+Logical threads: 32
+
+======================================================================
+ Phase 1: Python Baseline Tests
+======================================================================
+
+2026-03-27T17:06:58.521194 - Running Python baselines for each dataset (pass scenario, 100m range)...
+2026-03-27T17:06:58.521204 - This will be used as reference for speedup calculation.
+2026-03-27T17:06:58.521215 - Running Python baseline Dataset-1/pass
+2026-03-27T17:06:58.521223 - Running Python baseline on Dataset-1...

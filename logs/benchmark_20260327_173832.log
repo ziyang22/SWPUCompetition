@@ -1,0 +1,543 @@
+Benchmark_log started at 2026-03-27T17:38:32.982307
+
+Host: posix.uname_result(sysname='Linux', nodename='a47c93d068ad', release='5.4.241-1-tlinux4-0023.1', version='#1 SMP Tue May 6 19:24:58 CST 2025', machine='x86_64')
+Working directory: /workspace/SWPUCompetition
+======================================================================
+
+
+======================================================================
+ System Information
+======================================================================
+
+CPU Model: AMD EPYC 9K65 192-Core Processor
+Physical cores: 17
+Logical threads: 32
+
+======================================================================
+ Phase 2: C++ Configuration Tests
+======================================================================
+
+2026-03-27T17:38:32.989630 - Skipping Python baselines, directly testing C++ optimizations...
+
+======================================================================
+ Phase 2: Testing configuration: C++ Serial
+======================================================================
+
+2026-03-27T17:38:32.989650 - Building configuration: C++ Serial
+2026-03-27T17:38:32.989660 -   OpenMP: False, SIMD: False, Adaptive: False
+2026-03-27T17:38:32.994747 - Clean succeeded
+2026-03-27T17:38:35.606266 - Build succeeded
+2026-03-27T17:38:35.606312 - Running test: Dataset-1/cannot_pass
+2026-03-27T17:38:35.606351 -   Params: L=1.0m, R=0.05m, range=3300.0-3400.0m
+2026-03-27T17:38:35.606432 - Running test: Dataset-1/cannot_pass
+2026-03-27T17:38:35.606443 -   Params: L=1.0m, R=0.05m, range=3300.0-3400.0m
+
+Result [Current test] on Dataset-1/cannot_pass:
+  Time: 0.6500s
+ Success: True
+  Output preview (last 500 chars):
+--------------------------------------------------
+s (0.00%, avg/call 0.00s, max/call 0.00s)
+  get_closest_points: 0.00s (0.00%, avg/call 0.00s, max/call 0.00s)
+  max_inscribed_circle: 0.00s (0.00%, avg/call 0.00s, max/call 0.00s)
+  direction_loop: 0.00s (0.00%, avg/window 0.00s)
+  residual: 0.00s (0.00%, avg/window 0.00s)
+保存最后10个步长信息...
+无法通过，结果已保存到 output/stuck_point_3393.5m.txt 和 output/final_result_3393.5m.txt
+============================================================
+
+✗ 工具无法通过!
+  工具长度: 1.000 m
+  最大通过直径: 93.370 mm
+  卡点深度: 3393.500 m
+
+计算完成!
+--------------------------------------------------
+2026-03-27T17:38:36.364974 - Result: 0.6500s
+2026-03-27T17:38:36.365002 - Running test: Dataset-1/pass
+2026-03-27T17:38:36.365014 -   Params: L=1.0m, R=0.025m, range=3300.0-3400.0m
+2026-03-27T17:38:36.365074 - Running test: Dataset-1/pass
+2026-03-27T17:38:36.365084 -   Params: L=1.0m, R=0.025m, range=3300.0-3400.0m
+
+Result [Current test] on Dataset-1/pass:
+  Time: 0.6500s
+ Success: True
+  Output preview (last 500 chars):
+--------------------------------------------------
+00s)
+  point3d_to_2d: 0.00s (0.00%, avg/call 0.00s, max/call 0.00s)
+  get_closest_points: 0.00s (0.00%, avg/call 0.00s, max/call 0.00s)
+  max_inscribed_circle: 0.00s (0.00%, avg/call 0.00s, max/call 0.00s)
+  direction_loop: 0.00s (0.00%, avg/window 0.00s)
+  residual: 0.00s (0.00%, avg/window 0.00s)
+已至底部, 总耗时:0.65
+保存最后10个步长信息...
+通过数据已保存到 output/pass_last_5m_3400.0m.txt
+============================================================
+
+✓ 工具可以通过!
+  工具长度: 1.000 m
+  工具半径: 0.025 m
+  工具直径: 50.000 mm
+
+计算完成!
+--------------------------------------------------
+2026-03-27T17:38:37.125464 - Result: 0.6500s
+2026-03-27T17:38:37.125494 - Running test: Dataset-2/cannot_pass
+2026-03-27T17:38:37.125507 -   Params: L=1.0m, R=0.055m, range=4300.0-4400.0m
+2026-03-27T17:38:37.125583 - Running test: Dataset-2/cannot_pass
+2026-03-27T17:38:37.125594 -   Params: L=1.0m, R=0.055m, range=4300.0-4400.0m
+
+Result [Current test] on Dataset-2/cannot_pass:
+  Time: 0.6100s
+ Success: True
+  Output preview (last 500 chars):
+--------------------------------------------------
+ (0.00%, avg/call 0.00s, max/call 0.00s)
+  get_closest_points: 0.00s (0.00%, avg/call 0.00s, max/call 0.00s)
+  max_inscribed_circle: 0.00s (0.00%, avg/call 0.00s, max/call 0.00s)
+  direction_loop: 0.00s (0.00%, avg/window 0.00s)
+  residual: 0.00s (0.00%, avg/window 0.00s)
+保存最后10个步长信息...
+无法通过，结果已保存到 output/stuck_point_4301.0m.txt 和 output/final_result_4301.0m.txt
+============================================================
+
+✗ 工具无法通过!
+  工具长度: 1.000 m
+  最大通过直径: 109.893 mm
+  卡点深度: 4301.000 m
+
+计算完成!
+--------------------------------------------------
+2026-03-27T17:38:37.860669 - Result: 0.6100s
+2026-03-27T17:38:37.860699 - Running test: Dataset-2/pass
+2026-03-27T17:38:37.860714 -   Params: L=1.0m, R=0.05m, range=4300.0-4400.0m
+2026-03-27T17:38:37.860790 - Running test: Dataset-2/pass
+2026-03-27T17:38:37.860800 -   Params: L=1.0m, R=0.05m, range=4300.0-4400.0m
+
+Result [Current test] on Dataset-2/pass:
+  Time: 0.6100s
+ Success: True
+  Output preview (last 500 chars):
+--------------------------------------------------
+0s)
+  point3d_to_2d: 0.00s (0.00%, avg/call 0.00s, max/call 0.00s)
+  get_closest_points: 0.00s (0.00%, avg/call 0.00s, max/call 0.00s)
+  max_inscribed_circle: 0.00s (0.00%, avg/call 0.00s, max/call 0.00s)
+  direction_loop: 0.00s (0.00%, avg/window 0.00s)
+  residual: 0.00s (0.00%, avg/window 0.00s)
+已至底部, 总耗时:0.61
+保存最后10个步长信息...
+通过数据已保存到 output/pass_last_5m_4400.0m.txt
+============================================================
+
+✓ 工具可以通过!
+  工具长度: 1.000 m
+  工具半径: 0.050 m
+  工具直径: 100.000 mm
+
+计算完成!
+--------------------------------------------------
+2026-03-27T17:38:38.597528 - Result: 0.6100s
+
+======================================================================
+ Phase 2: Testing configuration: C++ + OpenMP
+======================================================================
+
+2026-03-27T17:38:38.597569 - Building configuration: C++ + OpenMP
+2026-03-27T17:38:38.597581 -   OpenMP: True, SIMD: False, Adaptive: False
+2026-03-27T17:38:38.604026 - Clean succeeded
+2026-03-27T17:38:41.202564 - Build succeeded
+2026-03-27T17:38:41.202610 - Running test: Dataset-1/cannot_pass
+2026-03-27T17:38:41.202629 -   Params: L=1.0m, R=0.05m, range=3300.0-3400.0m
+2026-03-27T17:38:41.202705 - Running test: Dataset-1/cannot_pass
+2026-03-27T17:38:41.202716 -   Params: L=1.0m, R=0.05m, range=3300.0-3400.0m
+
+Result [Current test] on Dataset-1/cannot_pass:
+  Time: 0.1000s
+ Success: True
+  Output preview (last 500 chars):
+--------------------------------------------------
+s (0.00%, avg/call 0.00s, max/call 0.00s)
+  get_closest_points: 0.00s (0.00%, avg/call 0.00s, max/call 0.00s)
+  max_inscribed_circle: 0.00s (0.00%, avg/call 0.00s, max/call 0.00s)
+  direction_loop: 0.00s (0.00%, avg/window 0.00s)
+  residual: 0.00s (0.00%, avg/window 0.00s)
+保存最后10个步长信息...
+无法通过，结果已保存到 output/stuck_point_3393.5m.txt 和 output/final_result_3393.5m.txt
+============================================================
+
+✗ 工具无法通过!
+  工具长度: 1.000 m
+  最大通过直径: 93.370 mm
+  卡点深度: 3393.500 m
+
+计算完成!
+--------------------------------------------------
+2026-03-27T17:38:41.409598 - Result: 0.1000s
+2026-03-27T17:38:41.409625 - Running test: Dataset-1/pass
+2026-03-27T17:38:41.409638 -   Params: L=1.0m, R=0.025m, range=3300.0-3400.0m
+2026-03-27T17:38:41.409702 - Running test: Dataset-1/pass
+2026-03-27T17:38:41.409713 -   Params: L=1.0m, R=0.025m, range=3300.0-3400.0m
+
+Result [Current test] on Dataset-1/pass:
+  Time: 0.2100s
+ Success: True
+  Output preview (last 500 chars):
+--------------------------------------------------
+00s)
+  point3d_to_2d: 0.00s (0.00%, avg/call 0.00s, max/call 0.00s)
+  get_closest_points: 0.00s (0.00%, avg/call 0.00s, max/call 0.00s)
+  max_inscribed_circle: 0.00s (0.00%, avg/call 0.00s, max/call 0.00s)
+  direction_loop: 0.00s (0.00%, avg/window 0.00s)
+  residual: 0.00s (0.00%, avg/window 0.00s)
+已至底部, 总耗时:0.21
+保存最后10个步长信息...
+通过数据已保存到 output/pass_last_5m_3400.0m.txt
+============================================================
+
+✓ 工具可以通过!
+  工具长度: 1.000 m
+  工具半径: 0.025 m
+  工具直径: 50.000 mm
+
+计算完成!
+--------------------------------------------------
+2026-03-27T17:38:41.734880 - Result: 0.2100s
+2026-03-27T17:38:41.734908 - Running test: Dataset-2/cannot_pass
+2026-03-27T17:38:41.734922 -   Params: L=1.0m, R=0.055m, range=4300.0-4400.0m
+2026-03-27T17:38:41.734984 - Running test: Dataset-2/cannot_pass
+2026-03-27T17:38:41.734994 -   Params: L=1.0m, R=0.055m, range=4300.0-4400.0m
+
+Result [Current test] on Dataset-2/cannot_pass:
+  Time: 0.1100s
+ Success: True
+  Output preview (last 500 chars):
+--------------------------------------------------
+ (0.00%, avg/call 0.00s, max/call 0.00s)
+  get_closest_points: 0.00s (0.00%, avg/call 0.00s, max/call 0.00s)
+  max_inscribed_circle: 0.00s (0.00%, avg/call 0.00s, max/call 0.00s)
+  direction_loop: 0.00s (0.00%, avg/window 0.00s)
+  residual: 0.00s (0.00%, avg/window 0.00s)
+保存最后10个步长信息...
+无法通过，结果已保存到 output/stuck_point_4301.0m.txt 和 output/final_result_4301.0m.txt
+============================================================
+
+✗ 工具无法通过!
+  工具长度: 1.000 m
+  最大通过直径: 109.893 mm
+  卡点深度: 4301.000 m
+
+计算完成!
+--------------------------------------------------
+2026-03-27T17:38:41.970507 - Result: 0.1100s
+2026-03-27T17:38:41.970536 - Running test: Dataset-2/pass
+2026-03-27T17:38:41.970549 -   Params: L=1.0m, R=0.05m, range=4300.0-4400.0m
+2026-03-27T17:38:41.970621 - Running test: Dataset-2/pass
+2026-03-27T17:38:41.970631 -   Params: L=1.0m, R=0.05m, range=4300.0-4400.0m
+
+Result [Current test] on Dataset-2/pass:
+  Time: 0.3300s
+ Success: True
+  Output preview (last 500 chars):
+--------------------------------------------------
+0s)
+  point3d_to_2d: 0.00s (0.00%, avg/call 0.00s, max/call 0.00s)
+  get_closest_points: 0.00s (0.00%, avg/call 0.00s, max/call 0.00s)
+  max_inscribed_circle: 0.00s (0.00%, avg/call 0.00s, max/call 0.00s)
+  direction_loop: 0.00s (0.00%, avg/window 0.00s)
+  residual: 0.00s (0.00%, avg/window 0.00s)
+已至底部, 总耗时:0.33
+保存最后10个步长信息...
+通过数据已保存到 output/pass_last_5m_4400.0m.txt
+============================================================
+
+✓ 工具可以通过!
+  工具长度: 1.000 m
+  工具半径: 0.050 m
+  工具直径: 100.000 mm
+
+计算完成!
+--------------------------------------------------
+2026-03-27T17:38:42.434709 - Result: 0.3300s
+
+======================================================================
+ Phase 2: Testing configuration: C++ + OpenMP + SIMD
+======================================================================
+
+2026-03-27T17:38:42.434745 - Building configuration: C++ + OpenMP + SIMD
+2026-03-27T17:38:42.434755 -   OpenMP: True, SIMD: True, Adaptive: False
+2026-03-27T17:38:42.440542 - Clean succeeded
+2026-03-27T17:38:45.276026 - Build succeeded
+2026-03-27T17:38:45.276077 - Running test: Dataset-1/cannot_pass
+2026-03-27T17:38:45.276096 -   Params: L=1.0m, R=0.05m, range=3300.0-3400.0m
+2026-03-27T17:38:45.276158 - Running test: Dataset-1/cannot_pass
+2026-03-27T17:38:45.276169 -   Params: L=1.0m, R=0.05m, range=3300.0-3400.0m
+
+Result [Current test] on Dataset-1/cannot_pass:
+  Time: 0.1100s
+ Success: True
+  Output preview (last 500 chars):
+--------------------------------------------------
+s (0.00%, avg/call 0.00s, max/call 0.00s)
+  get_closest_points: 0.00s (0.00%, avg/call 0.00s, max/call 0.00s)
+  max_inscribed_circle: 0.00s (0.00%, avg/call 0.00s, max/call 0.00s)
+  direction_loop: 0.00s (0.00%, avg/window 0.00s)
+  residual: 0.00s (0.00%, avg/window 0.00s)
+保存最后10个步长信息...
+无法通过，结果已保存到 output/stuck_point_3393.5m.txt 和 output/final_result_3393.5m.txt
+============================================================
+
+✗ 工具无法通过!
+  工具长度: 1.000 m
+  最大通过直径: 93.370 mm
+  卡点深度: 3393.500 m
+
+计算完成!
+--------------------------------------------------
+2026-03-27T17:38:45.497975 - Result: 0.1100s
+2026-03-27T17:38:45.498012 - Running test: Dataset-1/pass
+2026-03-27T17:38:45.498025 -   Params: L=1.0m, R=0.025m, range=3300.0-3400.0m
+2026-03-27T17:38:45.498098 - Running test: Dataset-1/pass
+2026-03-27T17:38:45.498109 -   Params: L=1.0m, R=0.025m, range=3300.0-3400.0m
+
+Result [Current test] on Dataset-1/pass:
+  Time: 0.1300s
+ Success: True
+  Output preview (last 500 chars):
+--------------------------------------------------
+00s)
+  point3d_to_2d: 0.00s (0.00%, avg/call 0.00s, max/call 0.00s)
+  get_closest_points: 0.00s (0.00%, avg/call 0.00s, max/call 0.00s)
+  max_inscribed_circle: 0.00s (0.00%, avg/call 0.00s, max/call 0.00s)
+  direction_loop: 0.00s (0.00%, avg/window 0.00s)
+  residual: 0.00s (0.00%, avg/window 0.00s)
+已至底部, 总耗时:0.13
+保存最后10个步长信息...
+通过数据已保存到 output/pass_last_5m_3400.0m.txt
+============================================================
+
+✓ 工具可以通过!
+  工具长度: 1.000 m
+  工具半径: 0.025 m
+  工具直径: 50.000 mm
+
+计算完成!
+--------------------------------------------------
+2026-03-27T17:38:45.739478 - Result: 0.1300s
+2026-03-27T17:38:45.739506 - Running test: Dataset-2/cannot_pass
+2026-03-27T17:38:45.739519 -   Params: L=1.0m, R=0.055m, range=4300.0-4400.0m
+2026-03-27T17:38:45.739579 - Running test: Dataset-2/cannot_pass
+2026-03-27T17:38:45.739589 -   Params: L=1.0m, R=0.055m, range=4300.0-4400.0m
+
+Result [Current test] on Dataset-2/cannot_pass:
+  Time: 0.1900s
+ Success: True
+  Output preview (last 500 chars):
+--------------------------------------------------
+ (0.00%, avg/call 0.00s, max/call 0.00s)
+  get_closest_points: 0.00s (0.00%, avg/call 0.00s, max/call 0.00s)
+  max_inscribed_circle: 0.00s (0.00%, avg/call 0.00s, max/call 0.00s)
+  direction_loop: 0.00s (0.00%, avg/window 0.00s)
+  residual: 0.00s (0.00%, avg/window 0.00s)
+保存最后10个步长信息...
+无法通过，结果已保存到 output/stuck_point_4301.0m.txt 和 output/final_result_4301.0m.txt
+============================================================
+
+✗ 工具无法通过!
+  工具长度: 1.000 m
+  最大通过直径: 109.893 mm
+  卡点深度: 4301.000 m
+
+计算完成!
+--------------------------------------------------
+2026-03-27T17:38:46.062653 - Result: 0.1900s
+2026-03-27T17:38:46.062681 - Running test: Dataset-2/pass
+2026-03-27T17:38:46.062695 -   Params: L=1.0m, R=0.05m, range=4300.0-4400.0m
+2026-03-27T17:38:46.062765 - Running test: Dataset-2/pass
+2026-03-27T17:38:46.062775 -   Params: L=1.0m, R=0.05m, range=4300.0-4400.0m
+
+Result [Current test] on Dataset-2/pass:
+  Time: 0.1100s
+ Success: True
+  Output preview (last 500 chars):
+--------------------------------------------------
+0s)
+  point3d_to_2d: 0.00s (0.00%, avg/call 0.00s, max/call 0.00s)
+  get_closest_points: 0.00s (0.00%, avg/call 0.00s, max/call 0.00s)
+  max_inscribed_circle: 0.00s (0.00%, avg/call 0.00s, max/call 0.00s)
+  direction_loop: 0.00s (0.00%, avg/window 0.00s)
+  residual: 0.00s (0.00%, avg/window 0.00s)
+已至底部, 总耗时:0.11
+保存最后10个步长信息...
+通过数据已保存到 output/pass_last_5m_4400.0m.txt
+============================================================
+
+✓ 工具可以通过!
+  工具长度: 1.000 m
+  工具半径: 0.050 m
+  工具直径: 100.000 mm
+
+计算完成!
+--------------------------------------------------
+2026-03-27T17:38:46.302908 - Result: 0.1100s
+
+======================================================================
+ Phase 2: Testing configuration: C++ + OpenMP + SIMD + Adaptive Search
+======================================================================
+
+2026-03-27T17:38:46.302944 - Building configuration: C++ + OpenMP + SIMD + Adaptive Search
+2026-03-27T17:38:46.302953 -   OpenMP: True, SIMD: True, Adaptive: True
+2026-03-27T17:38:46.308976 - Clean succeeded
+2026-03-27T17:38:49.146219 - Build succeeded
+2026-03-27T17:38:49.146271 - Running test: Dataset-1/cannot_pass
+2026-03-27T17:38:49.146290 -   Params: L=1.0m, R=0.05m, range=3300.0-3400.0m
+2026-03-27T17:38:49.146377 - Running test: Dataset-1/cannot_pass
+2026-03-27T17:38:49.146388 -   Params: L=1.0m, R=0.05m, range=3300.0-3400.0m
+
+Result [Current test] on Dataset-1/cannot_pass:
+  Time: 0.7100s
+ Success: True
+  Output preview (last 500 chars):
+--------------------------------------------------
+s (0.00%, avg/call 0.00s, max/call 0.00s)
+  get_closest_points: 0.00s (0.00%, avg/call 0.00s, max/call 0.00s)
+  max_inscribed_circle: 0.00s (0.00%, avg/call 0.00s, max/call 0.00s)
+  direction_loop: 0.00s (0.00%, avg/window 0.00s)
+  residual: 0.00s (0.00%, avg/window 0.00s)
+保存最后10个步长信息...
+无法通过，结果已保存到 output/stuck_point_3393.5m.txt 和 output/final_result_3393.5m.txt
+============================================================
+
+✗ 工具无法通过!
+  工具长度: 1.000 m
+  最大通过直径: 93.370 mm
+  卡点深度: 3393.500 m
+
+计算完成!
+--------------------------------------------------
+2026-03-27T17:38:49.970160 - Result: 0.7100s
+2026-03-27T17:38:49.970186 - Running test: Dataset-1/pass
+2026-03-27T17:38:49.970199 -   Params: L=1.0m, R=0.025m, range=3300.0-3400.0m
+2026-03-27T17:38:49.970260 - Running test: Dataset-1/pass
+2026-03-27T17:38:49.970270 -   Params: L=1.0m, R=0.025m, range=3300.0-3400.0m
+
+Result [Current test] on Dataset-1/pass:
+  Time: 0.7000s
+ Success: True
+  Output preview (last 500 chars):
+--------------------------------------------------
+00s)
+  point3d_to_2d: 0.00s (0.00%, avg/call 0.00s, max/call 0.00s)
+  get_closest_points: 0.00s (0.00%, avg/call 0.00s, max/call 0.00s)
+  max_inscribed_circle: 0.00s (0.00%, avg/call 0.00s, max/call 0.00s)
+  direction_loop: 0.00s (0.00%, avg/window 0.00s)
+  residual: 0.00s (0.00%, avg/window 0.00s)
+已至底部, 总耗时:0.70
+保存最后10个步长信息...
+通过数据已保存到 output/pass_last_5m_3400.0m.txt
+============================================================
+
+✓ 工具可以通过!
+  工具长度: 1.000 m
+  工具半径: 0.025 m
+  工具直径: 50.000 mm
+
+计算完成!
+--------------------------------------------------
+2026-03-27T17:38:50.778481 - Result: 0.7000s
+2026-03-27T17:38:50.778511 - Running test: Dataset-2/cannot_pass
+2026-03-27T17:38:50.778524 -   Params: L=1.0m, R=0.055m, range=4300.0-4400.0m
+2026-03-27T17:38:50.778595 - Running test: Dataset-2/cannot_pass
+2026-03-27T17:38:50.778605 -   Params: L=1.0m, R=0.055m, range=4300.0-4400.0m
+
+Result [Current test] on Dataset-2/cannot_pass:
+  Time: 0.0100s
+ Success: True
+  Output preview (last 500 chars):
+--------------------------------------------------
+ (0.00%, avg/call 0.00s, max/call 0.00s)
+  get_closest_points: 0.00s (0.00%, avg/call 0.00s, max/call 0.00s)
+  max_inscribed_circle: 0.00s (0.00%, avg/call 0.00s, max/call 0.00s)
+  direction_loop: 0.00s (0.00%, avg/window 0.00s)
+  residual: 0.00s (0.00%, avg/window 0.00s)
+保存最后10个步长信息...
+无法通过，结果已保存到 output/stuck_point_4301.0m.txt 和 output/final_result_4301.0m.txt
+============================================================
+
+✗ 工具无法通过!
+  工具长度: 1.000 m
+  最大通过直径: 109.893 mm
+  卡点深度: 4301.000 m
+
+计算完成!
+--------------------------------------------------
+2026-03-27T17:38:50.920514 - Result: 0.0100s
+2026-03-27T17:38:50.920542 - Running test: Dataset-2/pass
+2026-03-27T17:38:50.920555 -   Params: L=1.0m, R=0.05m, range=4300.0-4400.0m
+2026-03-27T17:38:50.920622 - Running test: Dataset-2/pass
+2026-03-27T17:38:50.920632 -   Params: L=1.0m, R=0.05m, range=4300.0-4400.0m
+
+Result [Current test] on Dataset-2/pass:
+  Time: 0.7000s
+ Success: True
+  Output preview (last 500 chars):
+--------------------------------------------------
+0s)
+  point3d_to_2d: 0.00s (0.00%, avg/call 0.00s, max/call 0.00s)
+  get_closest_points: 0.00s (0.00%, avg/call 0.00s, max/call 0.00s)
+  max_inscribed_circle: 0.00s (0.00%, avg/call 0.00s, max/call 0.00s)
+  direction_loop: 0.00s (0.00%, avg/window 0.00s)
+  residual: 0.00s (0.00%, avg/window 0.00s)
+已至底部, 总耗时:0.70
+保存最后10个步长信息...
+通过数据已保存到 output/pass_last_5m_4400.0m.txt
+============================================================
+
+✓ 工具可以通过!
+  工具长度: 1.000 m
+  工具半径: 0.050 m
+  工具直径: 100.000 mm
+
+计算完成!
+--------------------------------------------------
+2026-03-27T17:38:51.754057 - Result: 0.7000s
+
+======================================================================
+ Phase 3: Final Benchmark Results Summary
+======================================================================
+
+2026-03-27T17:38:51.754099 - Benchmark_log completed at 2026-03-27T17:38:51.754093
+2026-03-27T17:38:51.754124 - 
+=== Dataset: Dataset-1 ===
+2026-03-27T17:38:51.754142 - Configuration                           Time (s)    Speedup
+2026-03-27T17:38:51.754151 - ------------------------------------------------------------
+2026-03-27T17:38:51.754166 - C++ Serial                                0.6500        N/A
+2026-03-27T17:38:51.754176 - C++ + OpenMP                              0.1000        N/A
+2026-03-27T17:38:51.754186 - C++ + OpenMP + SIMD                       0.1100        N/A
+2026-03-27T17:38:51.754195 - C++ + OpenMP + SIMD + Adaptive Search       0.7100        N/A
+2026-03-27T17:38:51.754204 - 
+2026-03-27T17:38:51.754216 - Configuration                           Time (s)    Speedup
+2026-03-27T17:38:51.754224 - ------------------------------------------------------------
+2026-03-27T17:38:51.754234 - C++ Serial                                0.6500        N/A
+2026-03-27T17:38:51.754244 - C++ + OpenMP                              0.2100        N/A
+2026-03-27T17:38:51.754254 - C++ + OpenMP + SIMD                       0.1300        N/A
+2026-03-27T17:38:51.754263 - C++ + OpenMP + SIMD + Adaptive Search       0.7000        N/A
+2026-03-27T17:38:51.754271 - 
+2026-03-27T17:38:51.754279 - 
+=== Dataset: Dataset-2 ===
+2026-03-27T17:38:51.754290 - Configuration                           Time (s)    Speedup
+2026-03-27T17:38:51.754298 - ------------------------------------------------------------
+2026-03-27T17:38:51.754307 - C++ Serial                                0.6100        N/A
+2026-03-27T17:38:51.754316 - C++ + OpenMP                              0.1100        N/A
+2026-03-27T17:38:51.754337 - C++ + OpenMP + SIMD                       0.1900        N/A
+2026-03-27T17:38:51.754347 - C++ + OpenMP + SIMD + Adaptive Search       0.0100        N/A
+2026-03-27T17:38:51.754356 - 
+2026-03-27T17:38:51.754370 - Configuration                           Time (s)    Speedup
+2026-03-27T17:38:51.754377 - ------------------------------------------------------------
+2026-03-27T17:38:51.754387 - C++ Serial                                0.6100        N/A
+2026-03-27T17:38:51.754396 - C++ + OpenMP                              0.3300        N/A
+2026-03-27T17:38:51.754405 - C++ + OpenMP + SIMD                       0.1100        N/A
+2026-03-27T17:38:51.754414 - C++ + OpenMP + SIMD + Adaptive Search       0.7000        N/A
+2026-03-27T17:38:51.754422 - 
+2026-03-27T17:38:51.754430 - Benchmark completed!
