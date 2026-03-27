@@ -7,11 +7,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 This is a SWPU Competition project that implements a **projection method algorithm** for calculating wellbore passability. The core algorithm determines whether drilling tools can pass through a wellbore by projecting 3D wellbore wall points onto planes and calculating maximum inscribed circles.
 
 **Primary Languages**:
-- C++ (high-performance implementation, 134x faster)
+- C++ (high-performance implementation, 220x faster)
 - Python 3.8+ (original implementation)
 
 **Core Implementations**:
-- C++: `cpp_src/projection_method.cpp` (main algorithm)
+- C++ standalone: `cpp_src/projection_method.cpp` (main algorithm)
+- C++ Python binding: `cpp_src/python_bindings/` (pybind11 wrapper)
 - Python: `python_src/TouYingFa.py` (original reference)
 
 ## Project Structure
@@ -19,6 +20,9 @@ This is a SWPU Competition project that implements a **projection method algorit
 ```
 .
 ├── cpp_src/              # C++ source code
+│   ├── python_bindings/ # Python bindings (pybind11)
+│   ├── projection_method.cpp
+│   └── ...
 ├── python_src/           # Python source code
 ├── data/                 # Dataset directory
 │   ├── default/         # Default dataset (used in CLI mode)
@@ -27,6 +31,7 @@ This is a SWPU Competition project that implements a **projection method algorit
 ├── output/              # Output files directory
 ├── scripts/             # Utility scripts
 ├── docs/                # Documentation
+├── examples/            # Usage examples
 ├── build/               # Build artifacts
 └── Makefile             # Build configuration
 ```
@@ -54,8 +59,11 @@ The project uses a Conda environment named `SWPUCompetiton`:
 # Activate environment
 conda activate SWPUCompetiton
 
-# Run the main script
+# Run the main script (original Python implementation)
 python python_src/TouYingFa.py
+
+# Run with C++ acceleration (220x faster)
+python examples/use_cpp_binding.py
 
 # Run output verification
 python scripts/check_output.py
@@ -66,6 +74,29 @@ python scripts/check_output.py
 - Pandas (CSV data handling)
 - Matplotlib (visualization, optional)
 - SciPy (scientific computing)
+- pybind11 (for C++ Python bindings)
+
+### Python Bindings (C++ Acceleration)
+
+Install C++ Python bindings for 220x performance boost:
+
+```bash
+conda activate SWPUCompetiton
+cd cpp_src/python_bindings
+pip install -e .
+```
+
+Usage in Python:
+```python
+from projection_cpp import Projection2_cpp
+
+deep, R, rr, dd, p_all, t_all, draw_R = Projection2_cpp(
+    all_data, Point_3D, instrument_length, instrument_radius,
+    begin_deep, end_deep, num_step
+)
+```
+
+See `docs/PYTHON_BINDING.md` for detailed usage guide.
 
 ## Input Data Files
 

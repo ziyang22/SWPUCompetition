@@ -1,3 +1,5 @@
+import argparse
+import os
 import timeit
 import matplotlib
 import numpy as np
@@ -164,8 +166,13 @@ def max_incircle(points, grid_num):
                 max_radius = radius
     return np.array([max_circle[0][0], max_circle[0][1], max_circle[1] * 0.98])
 
+
+def build_output_path(output_dir, file_name):
+    return os.path.join(output_dir, file_name)
+
+
 def Projection2(all_data, Point_3D, Instrument_length=1, Instrument_Radius=0.01, begin_deep=None, end_deep=None,
-                num_step=1, if_draw=False):
+                num_step=1, if_draw=False, output_dir='.'):
     """
     投影法计算通过能力
     :param num_step:
@@ -186,6 +193,9 @@ def Projection2(all_data, Point_3D, Instrument_length=1, Instrument_Radius=0.01,
         if begin_deep > end_deep:
             print("error: 结束深度小于起始深度")
             raise Exception("截止深度小于起始深度!")
+
+    os.makedirs(output_dir, exist_ok=True)
+
     # 可能的数据切片
     if begin_deep is None:
         begin = 0
@@ -217,8 +227,6 @@ def Projection2(all_data, Point_3D, Instrument_length=1, Instrument_Radius=0.01,
         raise Exception("步进距离不能大于工具长度")
 
     h_step = int(num_step * 1000 / ((traj[1, 0] - traj[0, 0]) * 1000))
-    # if h_step < 1:
-    #     h_step = 1
 
     P_all = []
     R_all = []
@@ -229,12 +237,12 @@ def Projection2(all_data, Point_3D, Instrument_length=1, Instrument_Radius=0.01,
     i = begin
     draw_R = []
     if if_draw:
-        matplotlib.use('Agg')  # Set the backend to Agg
+        matplotlib.use('Agg')
         di = 0
         fig, axs = plt.subplots(nrows=3, ncols=3, figsize=(13, 13))
 
-    stuck_point_data = []  # 用于保存卡点附近的数据
-    pass_point_data = []  # 用于保存通过时的最后数据
+    stuck_point_data = []
+    pass_point_data = []
 
     while i < end - 1:
         a = timeit.default_timer()
@@ -244,26 +252,23 @@ def Projection2(all_data, Point_3D, Instrument_length=1, Instrument_Radius=0.01,
             return traj[np.argmin(np.array(R_all)[:, 2]) * h_step, 0], np.min(
                 np.array(R_all)[:, 2]), R_all, dir_all, P_all, t_all, draw_R
 
-        if j > (len(point)):  # 触底退出
+        if j > len(point):
             j = len(point) - 1
             id = id + 1
 
         if i - step < 0:
-            # print("True1")
-            Pi = traj[begin, 1:]  # 刚入井时 为进口轴心
+            Pi = traj[begin, 1:]
         else:
-            # print("True2")
-            Pi = traj[i - step, 1:]  # 初始上平面的圆心 工具尾部中心
-        Pj = traj[j, 1:]  # 当前深度点平面的圆心
+            Pi = traj[i - step, 1:]
+        Pj = traj[j, 1:]
         P_all.append(Pi)
 
         d = np.linalg.norm(Pj - Pi)
-        n0, n1, n2 = np.array(Pj - Pi) / d  # 主投影方向
+        n0, n1, n2 = np.array(Pj - Pi) / d
 
         delta = 0.030 / Instrument_length
         angle_step = delta / 8
 
-        # 获得所有可能投影方向
         angle = 0.0
         DX = []
         DY = []
@@ -275,25 +280,19 @@ def Projection2(all_data, Point_3D, Instrument_length=1, Instrument_Radius=0.01,
             DZ.extend(Z_dir)
             angle += angle_step
 
-        # 获得上平面各个点点根据投影方向在下面的投影
-        # 下平面公式的参数
         A, B, C = (traj[j - 1, 1:] - traj[j, 1:]) / np.linalg.norm((traj[j - 1, 1:] - traj[j, 1:]))
         D = - A * traj[j, 1] - B * traj[j, 2] - C * traj[j, 3]
         min_R = np.array([0, 0, 0])
         min_dir = np.array([0, 0, 0])
 
         for m in range(len(DX)):
-            # 各层投影
             if (j - step) < 0:
                 P_projection = line_plane(DX[m], DY[m], DZ[m], A, B, C, D, point[0:j, :, :])
             else:
                 P_projection = line_plane(DX[m], DY[m], DZ[m], A, B, C, D, point[j - step:j, :, :])
 
-            # 投影后内边界点获取
             P_pro_2d = point_3d_to_2d(A, B, C, P_projection, np.mean(P_projection, axis=0), P_projection[3, :])
             PPj = point_3d_to_2d(A, B, C, traj[j, 1:], np.mean(P_projection, axis=0), P_projection[3, :])
-            # P_pro_2d = point_3d_to_2d(A, B, C, P_projection, traj[j, 1:], P_projection[3, :])
-            # PPj = traj[j, 1:]
             S_P_projection_2d = get_closest_points(P_pro_2d)
 
             Rm = max_incircle(S_P_projection_2d, 30)
@@ -306,10 +305,9 @@ def Projection2(all_data, Point_3D, Instrument_length=1, Instrument_Radius=0.01,
                 pp_S = S_P_projection_2d
                 ppj = PPj
                 ml = m
-        # print(ml)
+
         R_all.append(min_R)
         dir_all.append(min_dir)
-        # print(traj[j - h_step, 0], '\n', np.array(min_R), np.array(min_R).shape)
         draw_R.append(np.insert(min_R, 0, traj[j - h_step, :]))
         draw_R.append(np.insert(min_R, 0, traj[j, :]))
 
@@ -323,17 +321,12 @@ def Projection2(all_data, Point_3D, Instrument_length=1, Instrument_Radius=0.01,
                 c = plt.Circle((min_R[0], min_R[1]), min_R[2], color='y', fill=False, label="max_in_cirecle")
                 axs[mm, nn].add_artist(c)
                 axs[mm, nn].set_title('Well-Deep:' + str(traj[j, 0] - Instrument_length) + '-' + str(traj[j, 0]))
-                # # 添加图例
-                # axs.legend()
-                # 显示图表
                 di = di + 1
             if di > 8:
-                plt.savefig(f"figure_{traj[j, 0]}m_{Instrument_length}m.png")
-                plt.close(fig)  # Close the figure to free memory
+                plt.savefig(build_output_path(output_dir, f"figure_{traj[j, 0]}m_{Instrument_length}m.png"))
+                plt.close(fig)
                 di = 0
                 fig, axs = plt.subplots(nrows=3, ncols=3, figsize=(13, 13))
-
-
 
         b = timeit.default_timer()
         i = j
@@ -341,33 +334,29 @@ def Projection2(all_data, Point_3D, Instrument_length=1, Instrument_Radius=0.01,
         print("深度:%.3f/%.3f, 工具长度: %.2fm\n 圆心:(%.3f,%.3f),直径：%.3f\n 当前段计算时间:%.2fs, 当前总耗时:%.2fs\n"
               % (traj[j, 0], traj[end - 1, 0], Instrument_length, min_R[0], min_R[1], min_R[2] * 2, b - a, t_all))
 
-        # 在计算完每个窗口后，保存结果
         current_result = {
             "depth": traj[j, 0],
-            "tool_len":Instrument_length,
+            "tool_len": Instrument_length,
             "center_x": min_R[0],
             "center_y": min_R[1],
-            "diameter":min_R[2] * 2,
+            "diameter": min_R[2] * 2,
             "now-time": b - a,
             "all-time": t_all
         }
 
         if r > min_R[2]:
-            # 保存当前卡点数据
             stuck_point_data.append(current_result)
 
-            # 保存前五米数据
             print("保存最后10个步长信息...")
-            stuck_file_name = f"stuck_point_{traj[j, 0]}m.txt"
-            with open(stuck_file_name, 'w',encoding='utf-8') as f:
+            stuck_file_name = build_output_path(output_dir, f"stuck_point_{traj[j, 0]}m.txt")
+            with open(stuck_file_name, 'w', encoding='utf-8') as f:
                 f.write("深度(m),工具长度(m) ,圆心X(m), 圆心Y(m),直径(m) ,当前段耗时(s),总耗时(s)\n")
                 p = int(5 / num_step)
-                for data in stuck_point_data[-p:]:  # 保存最后10个点（约前五米）
+                for data in stuck_point_data[-p:]:
                     f.write(
                         f"{data['depth']:.3f},{data['tool_len']:.6f},{data['center_x']:.6f},{data['center_y']:.6f},{data['diameter']:.6f},{data['now-time']:.6f},{data['all-time']:.6f}\n")
 
-            # 保存最后结果
-            final_result_file = f"final_result_{traj[j, 0]}m.txt"
+            final_result_file = build_output_path(output_dir, f"final_result_{traj[j, 0]}m.txt")
             with open(final_result_file, 'w', encoding='utf-8') as f:
                 f.write("工具长度(m), 工具半径(m), 卡点深度(m), 最大通过直径(m)\n")
                 f.write(f"{Instrument_length:.3f},{Instrument_Radius:.3f},{traj[j, 0]:.3f},{min_R[2] * 2:.6f}\n")
@@ -376,18 +365,16 @@ def Projection2(all_data, Point_3D, Instrument_length=1, Instrument_Radius=0.01,
             return traj[np.argmin(np.array(R_all)[:, 2]) * h_step + begin + 1, 0], np.min(
                 np.array(R_all)[:, 2]), R_all, dir_all, P_all, t_all, draw_R
 
-        # 保存当前结果
         stuck_point_data.append(current_result)
         pass_point_data.append(current_result)
 
-    # 如果能通过，保存最后五米数据
     print("已至底部, 总耗时:%.2f" % t_all)
     print("保存最后10个步长信息...")
-    pass_file_name = f"pass_last_5m_{end_deep}m.txt"
+    pass_file_name = build_output_path(output_dir, f"pass_last_5m_{end_deep}m.txt")
     with open(pass_file_name, 'w', encoding='utf-8') as f:
-        l=int(5/num_step)
+        l = int(5 / num_step)
         f.write("深度(m),工具长度(m) ,圆心X(m), 圆心Y(m),直径(m) ,当前段耗时(s),总耗时(s)\n")
-        for data in pass_point_data[-l:]:  # 保存最后10个点（约最后五米）
+        for data in pass_point_data[-l:]:
             f.write(
                 f"{data['depth']:.3f},{data['tool_len']:.6f},{data['center_x']:.6f},{data['center_y']:.6f},{data['diameter']:.6f},{data['now-time']:.6f},{data['all-time']:.6f}\n")
 
@@ -396,14 +383,49 @@ def Projection2(all_data, Point_3D, Instrument_length=1, Instrument_Radius=0.01,
         np.array(R_all)[:, 2]), R_all, dir_all, P_all, t_all, draw_R
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description='运行 Python 投影法并输出结果文件')
+    parser.add_argument('--dataset', help='data/ 下的数据集目录名，例如 Dataset-1')
+    parser.add_argument('--csv-path', help='显式指定 all_data.csv 路径')
+    parser.add_argument('--npy-path', help='显式指定 Point_3D.npy 路径')
+    parser.add_argument('--instrument-length', type=float, default=1.0)
+    parser.add_argument('--instrument-radius', type=float, default=0.05)
+    parser.add_argument('--begin-deep', type=float, default=3300.0)
+    parser.add_argument('--end-deep', type=float, default=3400.0)
+    parser.add_argument('--num-step', type=float, default=0.5)
+    parser.add_argument('--output-dir', default='.')
+    return parser.parse_args()
+
+
+def resolve_input_paths(args):
+    if args.csv_path and args.npy_path:
+        return args.csv_path, args.npy_path
+
+    if not args.dataset:
+        return 'all_data.csv', 'Point_3D.npy'
+
+    root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    dataset_dir = os.path.join(root_dir, 'data', args.dataset)
+    return (
+        os.path.join(dataset_dir, 'all_data.csv'),
+        os.path.join(dataset_dir, 'Point_3D.npy'),
+    )
+
+
 if __name__ == '__main__':
-    all_data = pd.read_csv('all_data.csv')
-    Point_3D = np.load('Point_3D.npy')
-    instrument_length=1  #工具长度
-    instrument_Radius=0.025  #工具半径
-    begin_deep=3300   #起始深度
-    end_deep=3400     #截至深度
-    num_step=0.5      #步长
-    deep, R, rr, dd, p_all, t_all, draw_R =Projection2(all_data, Point_3D, instrument_length,instrument_Radius, begin_deep, end_deep,num_step)
+    args = parse_args()
+    csv_path, npy_path = resolve_input_paths(args)
+    all_data = pd.read_csv(csv_path)
+    Point_3D = np.load(npy_path)
+    deep, R, rr, dd, p_all, t_all, draw_R = Projection2(
+        all_data,
+        Point_3D,
+        args.instrument_length,
+        args.instrument_radius,
+        args.begin_deep,
+        args.end_deep,
+        args.num_step,
+        output_dir=args.output_dir,
+    )
     print("工具长度:%.3fm 最大通过直径:%.3fmm 卡口深度:%.3fm\n"
-          % (instrument_length, R * 2 * 1000, deep))
+          % (args.instrument_length, R * 2 * 1000, deep))

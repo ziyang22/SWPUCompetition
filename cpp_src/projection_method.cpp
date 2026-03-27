@@ -11,6 +11,18 @@
 
 namespace projection {
 
+namespace {
+std::string formatDepthForFileName(double depth) {
+    std::ostringstream stream;
+    stream << std::fixed << std::setprecision(3) << depth;
+    std::string formatted = stream.str();
+    while (formatted.size() >= 2 && formatted.back() == '0' && formatted[formatted.size() - 2] != '.') {
+        formatted.pop_back();
+    }
+    return formatted;
+}
+} // namespace
+
 ProjectionCalculator::ProjectionCalculator(
     const std::vector<TrajectoryPoint>& trajectory,
     const std::vector<std::vector<Point3D>>& point_3d,
@@ -30,6 +42,27 @@ ProjectionCalculator::ProjectionCalculator(
 
     if (instrument_length_ < num_step_) {
         throw std::runtime_error("步进距离不能大于工具长度");
+    }
+
+    trajectory_c_.reserve(trajectory_.size());
+    for (const auto& point : trajectory_) {
+        trajectory_c_.push_back(projection_c_trajectory_point{
+            point.depth,
+            point.position.x,
+            point.position.y,
+            point.position.z
+        });
+    }
+
+    size_t flat_size = 0;
+    for (const auto& layer : point_3d_) {
+        flat_size += layer.size();
+    }
+    point_3d_c_.reserve(flat_size);
+    for (const auto& layer : point_3d_) {
+        for (const auto& point : layer) {
+            point_3d_c_.push_back(projection_c_point3d{point.x, point.y, point.z});
+        }
     }
 }
 
@@ -279,195 +312,197 @@ int ProjectionCalculator::findDepthIndex(double depth) const {
     return closest_idx;
 }
 
+// The main compute part
 bool ProjectionCalculator::calculate(
     double begin_deep,
     double end_deep,
     std::vector<CalculationResult>& results,
     double& stuck_depth,
-    double& min_radius
+    double& min_radius,
+    int enable_adaptive,
+    double growth_factor,
+    double min_step,
+    double max_step,
+    const ParallelExecutionConfig& parallel_config,
+    int enable_two_stage_max_circle
 ) {
+    projection_c_input_view input_view{};
+    projection_c_config config{};
+    projection_c_output output{};
+
     if (begin_deep > end_deep) {
         throw std::runtime_error("error: 结束深度小于起始深度");
     }
 
-    int begin = findDepthIndex(begin_deep);
-    int end = findDepthIndex(end_deep) + 1;
+    input_view.trajectory = trajectory_c_.data();
+    input_view.trajectory_count = trajectory_c_.size();
+    input_view.point_3d = point_3d_c_.data();
+    input_view.depth_count = point_3d_.size();
+    input_view.ring_count = point_3d_.empty() ? 0 : point_3d_[0].size();
 
-    if (end > static_cast<int>(point_3d_.size())) {
-        end = static_cast<int>(point_3d_.size());
+    config.instrument_length = instrument_length_;
+    config.instrument_radius = instrument_radius_;
+    config.num_step = num_step_;
+    config.begin_deep = begin_deep;
+    config.end_deep = end_deep;
+    config.enable_adaptive = enable_adaptive;
+    config.growth_factor = growth_factor;
+    config.min_step = min_step;
+    config.max_step = max_step;
+    config.enable_outer_parallel = parallel_config.enable_outer_parallel;
+    config.outer_tasks = parallel_config.outer_tasks;
+    config.enable_inner_parallel = parallel_config.enable_inner_parallel;
+    config.inner_threads = parallel_config.inner_threads;
+    config.enable_two_stage_max_circle = enable_two_stage_max_circle;
+
+    int status = projection_c_calculate(&input_view, &config, &output);
+    if (status != PROJECTION_C_OK) {
+        std::string message = output.error_message[0] != '\0' ? output.error_message : "C projection calculation failed";
+        projection_c_free_output(&output);
+        throw std::runtime_error(message);
     }
 
     results.clear();
-    double t_all = 0.0;
-    int i = begin;
-
-    std::vector<CalculationResult> stuck_point_data;
-    std::vector<CalculationResult> pass_point_data;
-
-    while (i < end - 1) {
-        auto start_time = std::chrono::high_resolution_clock::now();
-
-        int j = i + h_step_;
-        if (j >= static_cast<int>(point_3d_.size())) {
-            j = static_cast<int>(point_3d_.size()) - 1;
-        }
-
-        Point3D Pi, Pj;
-        if (i - step_ < 0) {
-            Pi = trajectory_[begin].position;
-        } else {
-            Pi = trajectory_[i - step_].position;
-        }
-        Pj = trajectory_[j].position;
-
-        Point3D diff = Pj - Pi;
-        double d = diff.norm();
-        Point3D n = diff / d;
-
-        double delta = 0.030 / instrument_length_;
-        double angle_step = delta / 8.0;
-
-        std::vector<double> DX, DY, DZ;
-        double angle = 0.0;
-        while (angle < delta) {
-            std::vector<double> X_dir, Y_dir, Z_dir;
-            projectionDirection(n.x, n.y, n.z, angle, X_dir, Y_dir, Z_dir);
-            DX.insert(DX.end(), X_dir.begin(), X_dir.end());
-            DY.insert(DY.end(), Y_dir.begin(), Y_dir.end());
-            DZ.insert(DZ.end(), Z_dir.begin(), Z_dir.end());
-            angle += angle_step;
-        }
-
-        // Calculate plane parameters
-        Point3D plane_normal = (trajectory_[j - 1].position - trajectory_[j].position).normalized();
-        double A = plane_normal.x;
-        double B = plane_normal.y;
-        double C = plane_normal.z;
-        double D = -(A * trajectory_[j].position.x + B * trajectory_[j].position.y + C * trajectory_[j].position.z);
-
-        Circle min_circle;
-        double max_r = 0.0;
-
-        for (size_t m = 0; m < DX.size(); ++m) {
-            // Get projection points
-            std::vector<std::vector<Point3D>> window_points;
-            int start_idx = std::max(0, j - step_);
-            for (int k = start_idx; k < j; ++k) {
-                if (k < static_cast<int>(point_3d_.size())) {
-                    // point_3d_[k] is vector<Point3D> (24 points at depth k)
-                    window_points.push_back(point_3d_[k]);
-                }
-            }
-
-            auto P_projection = linePlaneMultiple(DX[m], DY[m], DZ[m], A, B, C, D, window_points);
-
-            if (P_projection.empty()) continue;
-
-            Point3D mean_proj(0, 0, 0);
-            for (const auto& p : P_projection) {
-                mean_proj = mean_proj + p;
-            }
-            mean_proj = mean_proj / static_cast<double>(P_projection.size());
-
-            auto P_pro_2d = point3DTo2D(A, B, C, P_projection, mean_proj, P_projection[3]);
-            auto S_P_projection_2d = getClosestPoints(P_pro_2d);
-
-            Circle Rm = maxInscribedCircle(S_P_projection_2d, 30);
-
-            if (Rm.radius > max_r) {
-                max_r = Rm.radius;
-                min_circle = Rm;
-            }
-        }
-
-        auto end_time = std::chrono::high_resolution_clock::now();
-        double elapsed = std::chrono::duration<double>(end_time - start_time).count();
-        t_all += elapsed;
-
-        CalculationResult current_result;
-        current_result.depth = trajectory_[j].depth;
-        current_result.tool_length = instrument_length_;
-        current_result.center_x = min_circle.center_x;
-        current_result.center_y = min_circle.center_y;
-        current_result.diameter = min_circle.radius * 2.0;
-        current_result.current_time = elapsed;
-        current_result.total_time = t_all;
-
-        std::cout << std::fixed << std::setprecision(3)
-                  << "深度:" << trajectory_[j].depth << "/" << trajectory_[end - 1].depth
-                  << ", 工具长度: " << std::setprecision(2) << instrument_length_ << "m\n"
-                  << " 圆心:(" << std::setprecision(3) << min_circle.center_x << ","
-                  << min_circle.center_y << "),直径：" << min_circle.radius * 2.0 << "\n"
-                  << " 当前段计算时间:" << std::setprecision(2) << elapsed << "s, 当前总耗时:"
-                  << t_all << "s\n" << std::endl;
-
-        if (instrument_radius_ > min_circle.radius) {
-            stuck_point_data.push_back(current_result);
-
-            std::cout << "保存最后10个步长信息..." << std::endl;
-            std::string stuck_file_name = "output/stuck_point_" + std::to_string(static_cast<int>(trajectory_[j].depth)) + "m.txt";
-            std::ofstream stuck_file(stuck_file_name);
-            stuck_file << "深度(m),工具长度(m) ,圆心X(m), 圆心Y(m),直径(m) ,当前段耗时(s),总耗时(s)\n";
-
-            int p = static_cast<int>(5.0 / num_step_);
-            int start_save = std::max(0, static_cast<int>(stuck_point_data.size()) - p);
-            for (size_t idx = start_save; idx < stuck_point_data.size(); ++idx) {
-                const auto& data = stuck_point_data[idx];
-                stuck_file << std::fixed << std::setprecision(3) << data.depth << ","
-                          << std::setprecision(6) << data.tool_length << ","
-                          << data.center_x << "," << data.center_y << ","
-                          << data.diameter << "," << data.current_time << ","
-                          << data.total_time << "\n";
-            }
-            stuck_file.close();
-
-            std::string final_result_file = "output/final_result_" + std::to_string(static_cast<int>(trajectory_[j].depth)) + "m.txt";
-            std::ofstream final_file(final_result_file);
-            final_file << "工具长度(m), 工具半径(m), 卡点深度(m), 最大通过直径(m)\n";
-            final_file << std::fixed << std::setprecision(3) << instrument_length_ << ","
-                      << instrument_radius_ << "," << trajectory_[j].depth << ","
-                      << std::setprecision(6) << min_circle.radius * 2.0 << "\n";
-            final_file.close();
-
-            std::cout << "无法通过，结果已保存到 " << stuck_file_name << " 和 " << final_result_file << std::endl;
-
-            stuck_depth = trajectory_[j].depth;
-            min_radius = min_circle.radius;
-            results = stuck_point_data;
-            return false;
-        }
-
-        stuck_point_data.push_back(current_result);
-        pass_point_data.push_back(current_result);
-
-        i = j;
+    results.reserve(output.result_count);
+    for (size_t idx = 0; idx < output.result_count; ++idx) {
+        const auto& row = output.results[idx];
+        results.push_back(CalculationResult{
+            row.depth,
+            row.tool_length,
+            row.center_x,
+            row.center_y,
+            row.diameter,
+            row.current_time,
+            row.total_time
+        });
     }
 
-    std::cout << "已至底部, 总耗时:" << std::fixed << std::setprecision(2) << t_all << std::endl;
-    std::cout << "保存最后10个步长信息..." << std::endl;
+    stuck_depth = output.stuck_depth;
+    min_radius = output.min_radius;
+    bool passed = output.passed != 0;
 
-    std::string pass_file_name = "output/pass_last_5m_" + std::to_string(static_cast<int>(end_deep)) + "m.txt";
-    std::ofstream pass_file(pass_file_name);
-    pass_file << "深度(m),工具长度(m) ,圆心X(m), 圆心Y(m),直径(m) ,当前段耗时(s),总耗时(s)\n";
+    std::cout << "\nC 后端热点摘要:" << std::endl;
+    double total_time = results.empty() ? 0.0 : results.back().total_time;
+    double window_count = static_cast<double>(output.profile.window_count);
+    double direction_count = static_cast<double>(output.profile.direction_count_total);
+    auto percent_of_total = [total_time](double value) {
+        return total_time <= 0.0 ? 0.0 : value * 100.0 / total_time;
+    };
+    auto average_per_window = [window_count](double value) {
+        return window_count <= 0.0 ? 0.0 : value / window_count;
+    };
+    auto average_per_direction = [direction_count](double value) {
+        return direction_count <= 0.0 ? 0.0 : value / direction_count;
+    };
+    auto average_per_call = [](double value, size_t count) {
+        return count == 0 ? 0.0 : value / static_cast<double>(count);
+    };
 
-    int l = static_cast<int>(5.0 / num_step_);
-    int start_save = std::max(0, static_cast<int>(pass_point_data.size()) - l);
-    for (size_t idx = start_save; idx < pass_point_data.size(); ++idx) {
-        const auto& data = pass_point_data[idx];
-        pass_file << std::fixed << std::setprecision(3) << data.depth << ","
-                  << std::setprecision(6) << data.tool_length << ","
-                  << data.center_x << "," << data.center_y << ","
-                  << data.diameter << "," << data.current_time << ","
-                  << data.total_time << "\n";
+    std::cout << std::fixed << std::setprecision(2);
+    std::cout << "  总耗时: " << total_time << "s" << std::endl;
+    std::cout << "  OpenMP: " << (output.profile.openmp_enabled ? "enabled" : "disabled")
+              << ", 线程数: " << output.profile.openmp_thread_count << std::endl;
+    std::cout << "  窗口数: " << output.profile.window_count
+              << ", 平均每窗口耗时: " << average_per_window(output.profile.window_time_total) << "s"
+              << ", 最大窗口耗时: " << output.profile.window_time_max << "s" << std::endl;
+    std::cout << "  总方向数: " << output.profile.direction_count_total
+              << ", 平均每窗口方向数: " << average_per_window(direction_count)
+              << ", 最大单窗口方向数: " << output.profile.direction_count_max << std::endl;
+    std::cout << "  空投影方向: " << output.profile.empty_projection_direction_count
+              << " (" << average_per_direction(static_cast<double>(output.profile.empty_projection_direction_count) * 100.0) << "%)"
+              << ", 非空投影方向: " << output.profile.non_empty_projection_direction_count << std::endl;
+    std::cout << "  平均每方向耗时: " << average_per_direction(output.profile.direction_time_total) << "s"
+              << ", 最大方向耗时: " << output.profile.direction_time_max << "s" << std::endl;
+    std::cout << "  平均投影点数: " << average_per_call(static_cast<double>(output.profile.projected_points_total), output.profile.non_empty_projection_direction_count)
+              << ", 最大投影点数: " << output.profile.projected_points_max << std::endl;
+    std::cout << "  平均 closest 点数: " << average_per_call(static_cast<double>(output.profile.closest_points_total), output.profile.closest_points_call_count)
+              << ", 最大 closest 点数: " << output.profile.closest_points_max << std::endl;
+    std::cout << "  setup: " << output.profile.setup_time << "s (" << percent_of_total(output.profile.setup_time) << "%, avg/window "
+              << average_per_window(output.profile.setup_time) << "s)" << std::endl;
+    std::cout << "  direction_generation: " << output.profile.direction_generation_time << "s ("
+              << percent_of_total(output.profile.direction_generation_time) << "%, avg/window "
+              << average_per_window(output.profile.direction_generation_time) << "s)" << std::endl;
+    std::cout << "  line_plane_multiple: " << output.profile.projection_time << "s ("
+              << percent_of_total(output.profile.projection_time) << "%, avg/call "
+              << average_per_call(output.profile.projection_time, output.profile.projection_call_count) << "s, max/call "
+              << output.profile.projection_time_max << "s)" << std::endl;
+    std::cout << "  mean_reduction: " << output.profile.mean_reduction_time << "s ("
+              << percent_of_total(output.profile.mean_reduction_time) << "%, avg/call "
+              << average_per_call(output.profile.mean_reduction_time, output.profile.mean_reduction_call_count) << "s, max/call "
+              << output.profile.mean_reduction_time_max << "s)" << std::endl;
+    std::cout << "  point3d_to_2d: " << output.profile.point3d_to_2d_time << "s ("
+              << percent_of_total(output.profile.point3d_to_2d_time) << "%, avg/call "
+              << average_per_call(output.profile.point3d_to_2d_time, output.profile.point3d_to_2d_call_count) << "s, max/call "
+              << output.profile.point3d_to_2d_time_max << "s)" << std::endl;
+    std::cout << "  get_closest_points: " << output.profile.closest_points_time << "s ("
+              << percent_of_total(output.profile.closest_points_time) << "%, avg/call "
+              << average_per_call(output.profile.closest_points_time, output.profile.closest_points_call_count) << "s, max/call "
+              << output.profile.closest_points_time_max << "s)" << std::endl;
+    std::cout << "  max_inscribed_circle: " << output.profile.max_inscribed_circle_time << "s ("
+              << percent_of_total(output.profile.max_inscribed_circle_time) << "%, avg/call "
+              << average_per_call(output.profile.max_inscribed_circle_time, output.profile.max_inscribed_circle_call_count) << "s, max/call "
+              << output.profile.max_inscribed_circle_time_max << "s)" << std::endl;
+    std::cout << "  direction_loop: " << output.profile.direction_loop_time << "s ("
+              << percent_of_total(output.profile.direction_loop_time) << "%, avg/window "
+              << average_per_window(output.profile.direction_loop_time) << "s)" << std::endl;
+    std::cout << "  residual: " << output.profile.residual_time << "s ("
+              << percent_of_total(output.profile.residual_time) << "%, avg/window "
+              << average_per_window(output.profile.residual_time) << "s)" << std::endl;
+
+    if (!passed) {
+        std::cout << "保存最后10个步长信息..." << std::endl;
+        const std::string stuck_depth_str = formatDepthForFileName(stuck_depth);
+        std::string stuck_file_name = "output/stuck_point_" + stuck_depth_str + "m.txt";
+        std::ofstream stuck_file(stuck_file_name);
+        stuck_file << "深度(m),工具长度(m) ,圆心X(m), 圆心Y(m),直径(m) ,当前段耗时(s),总耗时(s)\n";
+
+        int p = static_cast<int>(5.0 / num_step_);
+        int start_save = std::max(0, static_cast<int>(results.size()) - p);
+        for (size_t idx = start_save; idx < results.size(); ++idx) {
+            const auto& data = results[idx];
+            stuck_file << std::fixed << std::setprecision(3) << data.depth << ","
+                      << std::setprecision(6) << data.tool_length << ","
+                      << data.center_x << "," << data.center_y << ","
+                      << data.diameter << "," << data.current_time << ","
+                      << data.total_time << "\n";
+        }
+        stuck_file.close();
+
+        std::string final_result_file = "output/final_result_" + stuck_depth_str + "m.txt";
+        std::ofstream final_file(final_result_file);
+        final_file << "工具长度(m), 工具半径(m), 卡点深度(m), 最大通过直径(m)\n";
+        final_file << std::fixed << std::setprecision(3) << instrument_length_ << ","
+                  << instrument_radius_ << "," << stuck_depth << ","
+                  << std::setprecision(6) << min_radius * 2.0 << "\n";
+        final_file.close();
+
+        std::cout << "无法通过，结果已保存到 " << stuck_file_name << " 和 " << final_result_file << std::endl;
+    } else {
+        double t_all = results.empty() ? 0.0 : results.back().total_time;
+        std::cout << "已至底部, 总耗时:" << std::fixed << std::setprecision(2) << t_all << std::endl;
+        std::cout << "保存最后10个步长信息..." << std::endl;
+
+        std::string pass_file_name = "output/pass_last_5m_" + formatDepthForFileName(end_deep) + "m.txt";
+        std::ofstream pass_file(pass_file_name);
+        pass_file << "深度(m),工具长度(m) ,圆心X(m), 圆心Y(m),直径(m) ,当前段耗时(s),总耗时(s)\n";
+
+        int l = static_cast<int>(5.0 / num_step_);
+        int start_save = std::max(0, static_cast<int>(results.size()) - l);
+        for (size_t idx = start_save; idx < results.size(); ++idx) {
+            const auto& data = results[idx];
+            pass_file << std::fixed << std::setprecision(3) << data.depth << ","
+                      << std::setprecision(6) << data.tool_length << ","
+                      << data.center_x << "," << data.center_y << ","
+                      << data.diameter << "," << data.current_time << ","
+                      << data.total_time << "\n";
+        }
+        pass_file.close();
+
+        std::cout << "通过数据已保存到 " << pass_file_name << std::endl;
     }
-    pass_file.close();
 
-    std::cout << "通过数据已保存到 " << pass_file_name << std::endl;
-
-    results = pass_point_data;
-    stuck_depth = 0.0;
-    min_radius = 0.0;
-    return true;
+    projection_c_free_output(&output);
+    return passed;
 }
 
 } // namespace projection
