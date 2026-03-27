@@ -101,6 +101,7 @@ typedef struct {
     int outer_tasks;           // 外层任务数
     int enable_inner_parallel; // 1: 启用窗口内部并行
     int inner_threads;         // 窗口内部线程数
+    int enable_two_stage_max_circle; // 1: 启用两阶段最大内切圆搜索
 } projection_c_config;
 
 typedef struct {

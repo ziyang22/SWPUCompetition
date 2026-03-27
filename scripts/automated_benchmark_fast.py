@@ -37,6 +37,7 @@ class Configuration:
     use_simd: bool
     adaptive_search: bool
     make_args: str
+    two_stage_max_circle: bool = False
 
 @dataclass
 class BenchmarkResult:
@@ -114,10 +115,14 @@ def build_configuration(config: Configuration) -> bool:
 # Test Execution
 # =============================================================================
 
-def run_single_test(test_case: TestCase, adaptive_search: bool) -> BenchmarkResult:
+def run_single_test(test_case: TestCase, adaptive_search: bool, two_stage_max_circle: bool = False) -> BenchmarkResult:
     """Run a single test case and extract the execution time"""
     # Prepare interactive input
     datasets = sorted([d for d in os.listdir('data') if os.path.isdir(os.path.join('data', d))])
+    # Filter to only dirs that have data files (same as the C++ program)
+    datasets = [d for d in datasets if
+                os.path.isfile(os.path.join('data', d, 'all_data.csv')) and
+                os.path.isfile(os.path.join('data', d, 'Point_3D.npy'))]
     try:
         dataset_index = datasets.index(test_case.dataset) + 1
     except ValueError:
@@ -126,6 +131,7 @@ def run_single_test(test_case: TestCase, adaptive_search: bool) -> BenchmarkResu
         return BenchmarkResult(None, False, "")
 
     enable_adaptive_input = '1' if adaptive_search else '0'
+    two_stage_input = '1' if two_stage_max_circle else '0'
     input_str = (
         f"{dataset_index}\n"
         f"{test_case.instrument_length}\n"
@@ -134,6 +140,11 @@ def run_single_test(test_case: TestCase, adaptive_search: bool) -> BenchmarkResu
         f"{test_case.end_deep}\n"
         f"{test_case.num_step}\n"
         f"{enable_adaptive_input}\n"
+        f"\n"  # enable_outer_parallel (default)
+        f"\n"  # outer_tasks (default)
+        f"\n"  # enable_inner_parallel (default)
+        f"\n"  # inner_threads (default)
+        f"{two_stage_input}\n"
     )
 
     try:
@@ -215,6 +226,7 @@ def main():
         Configuration("C++ + OpenMP", True, False, False, "USE_OPENMP=1 USE_SIMD=0"),
         Configuration("C++ + OpenMP + SIMD", True, True, False, "USE_OPENMP=1 USE_SIMD=1"),
         Configuration("C++ + OpenMP + SIMD + Adaptive Search", True, True, True, "USE_OPENMP=1 USE_SIMD=1"),
+        Configuration("C++ + OpenMP + SIMD + Adaptive + TwoStage", True, True, True, "USE_OPENMP=1 USE_SIMD=1", two_stage_max_circle=True),
     ]
 
     # Cached baseline times from previous run
@@ -259,7 +271,7 @@ def main():
             print(f"\n  Running test: {tc.dataset}/{tc.name}")
             print(f"    Params: L={tc.instrument_length}m, R={tc.instrument_radius}m, range={tc.begin_deep}-{tc.end_deep}m")
 
-            result = run_single_test(tc, config.adaptive_search)
+            result = run_single_test(tc, config.adaptive_search, config.two_stage_max_circle)
             if result.success and result.time_seconds is not None:
                 all_results[tc.dataset][tc.name][config.name] = result.time_seconds
                 print(f"    Result: {result.time_seconds:.4f}s")

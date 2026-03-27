@@ -211,7 +211,8 @@ py::tuple Projection2_cpp(
     py::object begin_deep = py::none(),
     py::object end_deep = py::none(),
     double num_step = 0.5,
-    bool if_draw = false
+    bool if_draw = false,
+    bool enable_two_stage_max_circle = false
 ) {
     (void)if_draw;
     std::vector<TrajectoryPoint> trajectory = dataframe_to_trajectory(all_data);
@@ -237,7 +238,13 @@ py::tuple Projection2_cpp(
         end_depth,
         results,
         stuck_depth,
-        min_radius
+        min_radius,
+        0,
+        2.0,
+        0.5,
+        10.0,
+        {},
+        enable_two_stage_max_circle ? 1 : 0
     );
 
     double deep = compute_python_style_deep(trajectory, results, begin_depth, num_step, passed, stuck_depth);
@@ -252,7 +259,8 @@ py::tuple Projection2_c(
     py::object begin_deep = py::none(),
     py::object end_deep = py::none(),
     double num_step = 0.5,
-    bool if_draw = false
+    bool if_draw = false,
+    bool enable_two_stage_max_circle = false
 ) {
     (void)if_draw;
     auto trajectory_c = dataframe_to_trajectory_c(all_data);
@@ -276,6 +284,7 @@ py::tuple Projection2_c(
     config.num_step = num_step;
     config.begin_deep = begin_depth;
     config.end_deep = end_depth;
+    config.enable_two_stage_max_circle = enable_two_stage_max_circle ? 1 : 0;
 
     projection_c_output output{};
     int status = projection_c_calculate(&input_view, &config, &output);
@@ -327,6 +336,7 @@ PYBIND11_MODULE(projection_cpp, m) {
           py::arg("end_deep") = py::none(),
           py::arg("num_step") = 0.5,
           py::arg("if_draw") = false,
+          py::arg("enable_two_stage_max_circle") = false,
           "Calculate wellbore passability using projection method (C++ adapter over current implementation)");
 
     m.def("Projection2_c", &Projection2_c,
@@ -338,5 +348,6 @@ PYBIND11_MODULE(projection_cpp, m) {
           py::arg("end_deep") = py::none(),
           py::arg("num_step") = 0.5,
           py::arg("if_draw") = false,
+          py::arg("enable_two_stage_max_circle") = false,
           "Calculate wellbore passability using projection method (pure C core backend)");
 }

@@ -323,7 +323,8 @@ bool ProjectionCalculator::calculate(
     double growth_factor,
     double min_step,
     double max_step,
-    const ParallelExecutionConfig& parallel_config
+    const ParallelExecutionConfig& parallel_config,
+    int enable_two_stage_max_circle
 ) {
     projection_c_input_view input_view{};
     projection_c_config config{};
@@ -352,6 +353,7 @@ bool ProjectionCalculator::calculate(
     config.outer_tasks = parallel_config.outer_tasks;
     config.enable_inner_parallel = parallel_config.enable_inner_parallel;
     config.inner_threads = parallel_config.inner_threads;
+    config.enable_two_stage_max_circle = enable_two_stage_max_circle;
 
     int status = projection_c_calculate(&input_view, &config, &output);
     if (status != PROJECTION_C_OK) {

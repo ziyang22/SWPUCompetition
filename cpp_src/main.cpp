@@ -1,6 +1,7 @@
 #include "projection_method.h"
 #include <iostream>
 #include <iomanip>
+#include <algorithm>
 #include <vector>
 #include <string>
 #include <dirent.h>
@@ -49,6 +50,7 @@ std::vector<std::string> listDatasets() {
     }
 
     closedir(dir);
+    std::sort(datasets.begin(), datasets.end());
     return datasets;
 }
 
@@ -82,7 +84,8 @@ std::string selectDataset() {
 void getParameters(double& instrument_length, double& instrument_radius,
                    double& begin_deep, double& end_deep, double& num_step,
                    int& enable_adaptive,
-                   projection::ParallelExecutionConfig& parallel_config) {
+                   projection::ParallelExecutionConfig& parallel_config,
+                   int& enable_two_stage_max_circle) {
     std::cout << "\n请输入计算参数（直接回车使用默认值）:" << std::endl;
 
     std::string input;
@@ -127,6 +130,10 @@ void getParameters(double& instrument_length, double& instrument_radius,
     std::cout << "内部线程数 [" << parallel_config.inner_threads << "]: ";
     std::getline(std::cin, input);
     if (!input.empty()) parallel_config.inner_threads = std::stoi(input);
+
+    std::cout << "启用两阶段最大内切圆搜索? (0/1) [" << enable_two_stage_max_circle << "]: ";
+    std::getline(std::cin, input);
+    if (!input.empty()) enable_two_stage_max_circle = std::stoi(input);
 }
 
 int main(int argc, char* argv[]) {
@@ -168,9 +175,10 @@ int main(int argc, char* argv[]) {
         double min_step = 0.5;               // 最小步长
         double max_step = 10.0;              // 最大步长
         projection::ParallelExecutionConfig parallel_config;
+        int enable_two_stage_max_circle = 0;
 
         // Parse command line arguments if provided
-        // Usage: ./projection_method <dataset> <length> <radius> <begin> <end> <step> [adaptive] [growth_factor] [min_step] [max_step] [outer_parallel] [outer_tasks] [inner_parallel] [inner_threads]
+        // Usage: ./projection_method <dataset> <length> <radius> <begin> <end> <step> [adaptive] [growth_factor] [min_step] [max_step] [outer_parallel] [outer_tasks] [inner_parallel] [inner_threads] [two_stage_max_circle]
         if (argc >= 7) {
             instrument_length = std::stod(argv[2]);
             instrument_radius = std::stod(argv[3]);
@@ -179,17 +187,18 @@ int main(int argc, char* argv[]) {
             num_step = std::stod(argv[6]);
 
             // 可选参数：自适应搜索
-          if (argc >= 8) enable_adaptive = std::stoi(argv[7]);
-       if (argc >= 9) growth_factor = std::stod(argv[8]);
+            if (argc >= 8) enable_adaptive = std::stoi(argv[7]);
+            if (argc >= 9) growth_factor = std::stod(argv[8]);
             if (argc >= 10) min_step = std::stod(argv[9]);
             if (argc >= 11) max_step = std::stod(argv[10]);
             if (argc >= 12) parallel_config.enable_outer_parallel = std::stoi(argv[11]);
             if (argc >= 13) parallel_config.outer_tasks = std::stoi(argv[12]);
             if (argc >= 14) parallel_config.enable_inner_parallel = std::stoi(argv[13]);
             if (argc >= 15) parallel_config.inner_threads = std::stoi(argv[14]);
+            if (argc >= 16) enable_two_stage_max_circle = std::stoi(argv[15]);
         } else {
             // Interactive mode: get parameters
-            getParameters(instrument_length, instrument_radius, begin_deep, end_deep, num_step, enable_adaptive, parallel_config);
+            getParameters(instrument_length, instrument_radius, begin_deep, end_deep, num_step, enable_adaptive, parallel_config, enable_two_stage_max_circle);
         }
 
         std::cout << std::endl;
@@ -202,7 +211,7 @@ int main(int argc, char* argv[]) {
         if (enable_adaptive) {
             std::cout << "  自适应搜索: 启用" << std::endl;
             std::cout << "    增长系数: " << growth_factor << std::endl;
-        std::cout << "    最小步长: " << min_step << " m" << std::endl;
+            std::cout << "    最小步长: " << min_step << " m" << std::endl;
             std::cout << "    最大步长: " << max_step << " m" << std::endl;
         }
         std::cout << "  区间任务并行: " << (parallel_config.enable_outer_parallel ? "启用" : "关闭") << std::endl;
@@ -213,6 +222,7 @@ int main(int argc, char* argv[]) {
         if (parallel_config.enable_inner_parallel) {
             std::cout << "    内部线程数: " << parallel_config.inner_threads << std::endl;
         }
+        std::cout << "  两阶段最大内切圆搜索: " << (enable_two_stage_max_circle ? "启用" : "关闭") << std::endl;
         std::cout << std::endl;
 
         // Create calculator
@@ -239,10 +249,11 @@ int main(int argc, char* argv[]) {
             stuck_depth,
             min_radius,
             enable_adaptive,
-          growth_factor,
-          min_step,
-      max_step,
-            parallel_config
+            growth_factor,
+            min_step,
+            max_step,
+            parallel_config,
+            enable_two_stage_max_circle
         );
 
         std::cout << std::string(60, '=') << std::endl;
