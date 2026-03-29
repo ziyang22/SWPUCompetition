@@ -19,7 +19,7 @@ def run_python_version():
 
     # 修改 TouYingFa.py 的参数并运行
     result = subprocess.run(
-        ['/opt/homebrew/Caskroom/miniconda/base/bin/conda', 'run', '-n', 'SWPUCompetiton', 'python', 'python_src/TouYingFa.py'],
+        ['python', 'python_src/TouYingFa.py'],
         capture_output=True,
         text=True
     )

@@ -5,12 +5,7 @@
 #include <array>
 #include <string>
 #include <optional>
-#include <stdexcept>
 #include <cmath>
-
-extern "C" {
-#include "../c_src/projection_c.h"
-}
 
 namespace projection {
 
@@ -100,15 +95,6 @@ struct CalculationResult {
     double total_time;
 };
 
-// Parallel execution controls
-// outer_tasks/inner_threads = 0 means auto-detect (use all available cores)
-struct ParallelExecutionConfig {
-    int enable_outer_parallel = 1;  // 跨窗口并行，粒度大，默认启用
-    int outer_tasks = 0;            // 0 = auto
-    int enable_inner_parallel = 0;  // 网格内并行，粒度太小(30x30)，默认关闭
-    int inner_threads = 0;          // 0 = auto
-};
-
 // Main projection calculation class
 class ProjectionCalculator {
 public:
@@ -126,13 +112,7 @@ public:
         double end_deep,
         std::vector<CalculationResult>& results,
         double& stuck_depth,
-        double& min_radius,
-        int enable_adaptive = 0,
-        double growth_factor = 2.0,
-        double min_step = 0.5,
-        double max_step = 10.0,
-        const ParallelExecutionConfig& parallel_config = {},
-        int enable_two_stage_max_circle = 0
+        double& min_radius
     );
 
 private:
@@ -179,8 +159,6 @@ private:
 private:
     std::vector<TrajectoryPoint> trajectory_;
     std::vector<std::vector<Point3D>> point_3d_;  // CHANGED: 2D array now [depth][24_points]
-    std::vector<projection_c_trajectory_point> trajectory_c_;
-    std::vector<projection_c_point3d> point_3d_c_;
     double instrument_length_;
     double instrument_radius_;
     double num_step_;

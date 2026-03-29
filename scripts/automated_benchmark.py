@@ -377,6 +377,13 @@ def main():
             adaptive_search=True,
             make_args="USE_OPENMP=1 USE_SIMD=1"
         ),
+        Configuration(
+            name="C++ + OpenMP + Adaptive Search",
+            use_openmp=True,
+            use_simd=True,
+            adaptive_search=True,
+            make_args="USE_OPENMP=1"
+        ),
     ]
 
     # Change to project root directory

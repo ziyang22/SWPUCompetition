@@ -36,6 +36,14 @@ typedef struct {
     size_t capacity;
 } point2d_buffer;
 
+/* SoA (Structure of Arrays) 结构用于优化 SIMD 加载性能 */
+typedef struct {
+    double* x;
+    double* y;
+    size_t size;
+    size_t capacity;
+} point2d_buffer_soa;
+
 typedef struct {
     point3d_buffer* directions;
     point3d_buffer* projected;
@@ -450,6 +458,33 @@ static int circle_candidate_better(
     return 0;
 }
 
+/* 将 AoS 结构转换为 SoA 结构（优化 SIMD 加载）*/
+static void convert_aos_to_soa(
+    const projection_c_point2d* aos_data,
+    size_t point_count,
+    point2d_buffer_soa* soa_output
+) {
+    size_t i;
+    if (soa_output->capacity < point_count) {
+        double* new_x = (double*)realloc(soa_output->x, point_count * sizeof(double));
+        double* new_y = (double*)realloc(soa_output->y, point_count * sizeof(double));
+        if (!new_x || !new_y) {
+            free(new_x);
+            free(new_y);
+            return;  /* 内存分配失败，继续使用 AoS */
+        }
+        soa_output->x = new_x;
+        soa_output->y = new_y;
+        soa_output->capacity = point_count;
+    }
+
+    for (i = 0; i < point_count; ++i) {
+        soa_output->x[i] = aos_data[i].x;
+        soa_output->y[i] = aos_data[i].y;
+    }
+    soa_output->size = point_count;
+}
+
 static double min_distance_squared_scalar(
     const projection_c_point2d* point_data,
     size_t point_count,
@@ -477,7 +512,7 @@ static double min_distance_squared_scalar(
 
 #if defined(PROJECTION_C_USE_SIMD) && defined(__AVX2__)
 static double min_distance_squared_simd(
-    const projection_c_point2d* point_data,
+    const point2d_buffer_soa* point_soa,
     size_t point_count,
     double x0,
     double y0,
@@ -489,19 +524,10 @@ static double min_distance_squared_simd(
     __m256d best_vec = _mm256_set1_pd(best_radius_sq + PROJECTION_C_EPS);
     size_t p = 0;
 
+    /* 使用 SoA 实现高效连续加载 */
     for (; p + 3 < point_count; p += 4) {
-        __m256d x_vec = _mm256_set_pd(
-            point_data[p + 3].x,
-            point_data[p + 2].x,
-            point_data[p + 1].x,
-            point_data[p].x
-        );
-        __m256d y_vec = _mm256_set_pd(
-            point_data[p + 3].y,
-            point_data[p + 2].y,
-            point_data[p + 1].y,
-            point_data[p].y
-        );
+        __m256d x_vec = _mm256_loadu_pd(&point_soa->x[p]);  /* 连续加载 X */
+        __m256d y_vec = _mm256_loadu_pd(&point_soa->y[p]);  /* 连续加载 Y */
         __m256d dx_vec = _mm256_sub_pd(x_vec, x0_vec);
         __m256d dy_vec = _mm256_sub_pd(y_vec, y0_vec);
         __m256d dist_sq_vec;
@@ -527,8 +553,8 @@ static double min_distance_squared_simd(
         if (min_values[3] < min_dist_sq) min_dist_sq = min_values[3];
 
         for (; p < point_count; ++p) {
-            double dx = point_data[p].x - x0;
-            double dy = point_data[p].y - y0;
+            double dx = point_soa->x[p] - x0;
+            double dy = point_soa->y[p] - y0;
             double dist_sq = dx * dx + dy * dy;
             if (dist_sq < min_dist_sq) {
                 min_dist_sq = dist_sq;
@@ -586,8 +612,15 @@ static projection_c_circle_search_result scan_inscribed_circle_region(
     int i;
 
     if (grid_num <= 0 || point_count == 0) {
-        return result;
+        goto cleanup;
     }
+
+    /* SoA 结构用于优化 SIMD 加载 */
+    point2d_buffer_soa point_soa = {NULL, NULL, 0, 0};
+#if defined(PROJECTION_C_USE_SIMD) && defined(__AV)
+    /* 仅在启用 SIMD 时转换为 SoA */
+    convert_aos_to_soa(point_data, point_count, &point_soa);
+#endif
 
     x_step = (xmax - xmin) / grid_num;
     y_step = (ymax - ymin) / grid_num;
@@ -608,7 +641,14 @@ static projection_c_circle_search_result scan_inscribed_circle_region(
             double x0 = xmin + i * x_step;
             for (j = 0; j < grid_num; ++j) {
                 double y0 = ymin + j * y_step;
-                double min_dist_sq = min_distance_squared(point_data, point_count, x0, y0, thread_best_radius_sq);
+                double min_dist_sq;
+#if defined(PROJECTION_C_USE_SIMD) && defined(__AV)
+                /* 使用 SoA 优化的 SIMD 版本 */
+                min_dist_sq = min_distance_squared_simd(&point_soa, point_count, x0, y0, thread_best_radius_sq);
+#else
+                /* 使用标量版本 */
+                min_dist_sq = min_distance_squared_scalar(point_data, point_count, x0, y0, thread_best_radius_sq);
+#endif
                 double min_dist;
 
                 if (min_dist_sq > thread_best_radius_sq + PROJECTION_C_EPS) {
@@ -647,7 +687,14 @@ static projection_c_circle_search_result scan_inscribed_circle_region(
         double x0 = xmin + i * x_step;
         for (j = 0; j < grid_num; ++j) {
             double y0 = ymin + j * y_step;
-            double min_dist_sq = min_distance_squared(point_data, point_count, x0, y0, result.radius_sq);
+            double min_dist_sq;
+#if defined(PROJECTION_C_USE_SIMD) && defined(__AV)
+            /* 使用 SoA 优化的 SIMD 版本 */
+            min_dist_sq = min_distance_squared_simd(&point_soa, point_count, x0, y0, result.radius_sq);
+#else
+            /* 使用标量版本 */
+            min_dist_sq = min_distance_squared_scalar(point_data, point_count, x0, y0, result.radius_sq);
+#endif
             double min_dist;
 
             if (min_dist_sq > result.radius_sq + PROJECTION_C_EPS) {
@@ -668,6 +715,12 @@ static projection_c_circle_search_result scan_inscribed_circle_region(
             }
         }
     }
+#endif
+
+cleanup:
+#if defined(PROJECTION_C_USE_SIMD) && defined(__AV)
+    if (point_soa.x) free(point_soa.x);
+    if (point_soa.y) free(point_soa.y);
 #endif
 
     if (result.found && result.best_i >= 0 && result.best_j >= 0) {
@@ -691,6 +744,13 @@ static projection_c_circle max_inscribed_circle(const point2d_buffer* points,
     double ymax;
     size_t p;
     projection_c_circle_search_result result;
+
+    /* SoA 结构用于优化 SIMD 加载 */
+    point2d_buffer_soa point_soa = {NULL, NULL, 0, 0};
+#if defined(PROJECTION_C_USE_SIMD) && defined(__AVX2__)
+    /* 仅在启用 SIMD 时转换为 SoA */
+    convert_aos_to_soa(point_data, point_count, &point_soa);
+#endif
 
     if (point_count == 0) {
         return max_circle;
